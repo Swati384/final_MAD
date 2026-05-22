@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'sign_up.dart';
-import 'renter.dart'; // Ensure this matches your renter dashboard file name
+import 'central_dashboard_hub.dart'; // Pointing to your new unified shell navigation file
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -18,10 +18,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _handleLogin() {
     if (_formKey.currentState!.validate()) {
-      // Directs to the Renter Dashboard after login
+      // Directs to the unified Central Dashboard Hub after login
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const RenterDash()),
+        MaterialPageRoute(builder: (context) => const CentralDashboardHub()),
       );
     }
   }
