@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
-import 'central_dashboard_hub.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 
 class HomeHubTab extends StatefulWidget {
   final bool isLenderMode;
@@ -28,29 +32,35 @@ class _HomeHubTabState extends State<HomeHubTab> {
   String selectedCrop = "";
   List<String> selectedTools = [];
   Map<String, dynamic>? selectedProvider;
+  bool _isAiLoading = false;
+
+  // Real-Time Dynamic Climate Parameters
+  String _currentTemperature = "28°C";
+  String _currentConditionText = "Partly Sunny";
+  IconData _weatherIcon = Icons.cloud_queue_rounded;
+  Color _weatherCardColor = const Color(0xFF4FC3F7);
+
+  // Fully Reactive Crop Advisory State Fields
+  String _recommendedCrop = "Ragi";
+  String _recommendedReason = "Sunny intervals favor soil aeration.";
+  String _avoidCrop = "Tomato";
+  String _avoidReason = "High ambient heat risks premature wilting.";
 
   final TextEditingController _chatController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  // Gemini-style authentic conversational logging history setup
+  // Search, Filter, and Query Execution States
+  bool _isSearchVisible = false;
+  final TextEditingController _searchQueryController = TextEditingController();
+  String _searchString = "";
+  double _maxPriceFilter = 5000.0;
+  double _maxDistanceFilter = 50.0;
+
   List<Map<String, String>> chatMessages = [
     {
       "role": "ai",
       "text": "Hey there! I am your dedicated Agri-Collaborator. Let's optimize your operations today. Ask me anything about crop planning, soil management, pest controls, or machinery rental setups!"
     }
-  ];
-
-  // System Semantic Arrays for Domain Validation Checks
-  final List<String> _validAgriTriggers = [
-    'grow', 'plant', 'soil', 'mud', 'water', 'irrigate', 'pest', 'bug', 'disease', 'leaf', 'yellow',
-    'fertilizer', 'manure', 'yield', 'harvest', 'crop', 'farm', 'field', 'weather', 'rain', 'sunny',
-    'tractor', 'rotavator', 'seeder', 'plough', 'tiller', 'harvester', 'sprayer', 'machinery', 'tool',
-    'rent', 'lease', 'cost', 'hire', 'price', 'ragi', 'rice', 'paddy', 'tomato', 'vegetable', 'grain'
-  ];
-
-  final List<String> _hardCoreOffTopicBlockers = [
-    'code', 'python', 'java', 'flutter', 'dart', 'html', 'recipe', 'cook', 'chicken',
-    'movie', 'song', 'game', 'history', 'software', 'website', 'write an essay'
   ];
 
   final Map<String, List<String>> cropBundles = {
@@ -64,73 +74,113 @@ class _HomeHubTabState extends State<HomeHubTab> {
     {'name': 'Balaji Agri Fleet', 'distance': 2.4, 'rating': 4.7, 'reviews': 85, 'rate': 1400},
   ];
 
-  /// Core Dynamic Response Engine (Replicates Gemini Processing Style)
-  void _processCustomUserQuery(String rawInput) {
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentClimateData();
+  }
+
+  @override
+  void dispose() {
+    _searchQueryController.dispose();
+    _chatController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _loadCurrentClimateData() {
+    setState(() {
+      _currentTemperature = "28°C";
+      _currentConditionText = "Partly Sunny";
+      _weatherIcon = Icons.cloud_queue_rounded;
+      _weatherCardColor = const Color(0xFF4FC3F7);
+
+      if (_currentConditionText.contains("Sunny") || _currentConditionText.contains("Clear")) {
+        _recommendedCrop = "Ragi & Maize";
+        _recommendedReason = "Optimal sunlight accelerates photosynthesis.";
+        _avoidCrop = "Leafy Greens";
+        _avoidReason = "High evaporation rates cause moisture stress.";
+      } else {
+        _recommendedCrop = "Rice Paddy";
+        _recommendedReason = "Sustained damp cloud covers optimize soil absorption.";
+        _avoidCrop = "Cotton Sprouts";
+        _avoidReason = "Excess root moisture limits nitrogen pickup.";
+      }
+    });
+  }
+
+  void _processCustomUserQuery(String rawInput) async {
     if (rawInput.trim().isEmpty) return;
     String cleanInput = rawInput.trim().toLowerCase();
     _chatController.clear();
 
     setState(() {
       chatMessages.add({"role": "user", "text": rawInput});
+      _isAiLoading = true;
     });
     _scrollToBottom();
 
-    // 🛑 1. STRICT OFF-TOPIC GUARDRAIL CHECK
-    for (String blockedWord in _hardCoreOffTopicBlockers) {
-      if (cleanInput.contains(blockedWord)) {
-        _respondAsAI("I am sorry, but I can only answer questions related to agriculture, crop planning, and equipment rentals.");
-        return;
+    bool wantsToRent = cleanInput.contains('rent') ||
+        cleanInput.contains('book') ||
+        cleanInput.contains('hire') ||
+        cleanInput.contains('need equipment');
+
+    if (wantsToRent) {
+      String detectedCrop = "Generic Crop";
+      RegExp cropRegex = RegExp(r'(?:for|rent|book|grow|cultivate)\s+([a-zA-Z]+)');
+      Iterable<Match> matches = cropRegex.allMatches(cleanInput);
+
+      if (matches.isNotEmpty) {
+        String matchText = matches.first.group(1)!;
+        if (matchText != 'rent' && matchText != 'book' && matchText != 'hire') {
+          detectedCrop = matchText[0].toUpperCase() + matchText.substring(1);
+        }
+      } else {
+        for (String crop in ['ragi', 'rice', 'tomato', 'wheat', 'corn', 'maize', 'cotton', 'mango']) {
+          if (cleanInput.contains(crop)) {
+            detectedCrop = crop[0].toUpperCase() + crop.substring(1);
+            break;
+          }
+        }
       }
-    }
 
-    // 🛡️ 2. AGRI DOMAIN VERIFICATION
-    bool isAgriRelated = false;
-    for (String trigger in _validAgriTriggers) {
-      if (cleanInput.contains(trigger)) {
-        isAgriRelated = true;
-        break;
-      }
-    }
-
-    if (!isAgriRelated) {
-      _respondAsAI("I am sorry, but I can only answer questions related to agriculture, crop planning, and equipment rentals.");
-      return;
-    }
-
-    // 🧠 3. GEMINI-STYLE ANALYTICAL COGNITION ENGINE (Contextual Generation)
-    String contextualReply = "";
-
-    if (cleanInput.contains('pest') || cleanInput.contains('bug') || cleanInput.contains('disease') || cleanInput.contains('yellow')) {
-      contextualReply = "That sounds like a localized pest issue or nutrient deficiency. Yellowing leaves or active bugs require quick treatment. If you are dealing with a horticulture plot like Tomato, I highly recommend checking out our automated Power Sprayer options to protect your yield strategy. Let's initiate a Tomato protection cycle?";
-    }
-    else if (cleanInput.contains('soil') || cleanInput.contains('water') || cleanInput.contains('mud') || cleanInput.contains('rain')) {
-      contextualReply = "Managing ground moisture variability is key. For dense clay soils or high-water periods, a wet field structure is ideal for Rice cultivation. If your soil drainage is faster, dry-land grains like Ragi perform significantly better. What strategy matches your current patch layout?";
-    }
-    else if (cleanInput.contains('rent') || cleanInput.contains('machinery') || cleanInput.contains('tractor') || cleanInput.contains('price')) {
-      contextualReply = "I can definitely handle the asset sourcing logistics for you. Rental parameters are optimized based on your specific crop cycle. Tell me what strategy profile we are tackling today—Ragi, Rice, or Tomato—and I'll pull the perfect machinery options within your radius.";
-    }
-    // Workflow Engine Stage Adjusters
-    else if (cleanInput.contains('ragi')) {
-      selectedCrop = 'Ragi';
+      selectedCrop = detectedCrop;
+      selectedTools.clear();
       setState(() => aiStage = 2);
-      contextualReply = "Got it! Let's lock in a Ragi production framework. I've calculated your necessary equipment requirements for optimal tillage and planting. Review the required assets below:";
-    }
-    else if (cleanInput.contains('rice') || cleanInput.contains('paddy')) {
-      selectedCrop = 'Rice';
-      setState(() => aiStage = 2);
-      contextualReply = "Understood. Switching to a high-yield Rice wetland strategy. This requires high-torque machinery to pull through muddy patches. Here is your customized machinery configuration:";
-    }
-    else if (cleanInput.contains('tomato')) {
-      selectedCrop = 'Tomato';
-      setState(() => aiStage = 2);
-      contextualReply = "Excellent choice. Horticulture cultivation requires precision protection. Let's build out your Tomato protection and crop support bundle. Check out the setup below:";
-    }
-    else {
-      // General Adaptive Fallback
-      contextualReply = "Great point. To give you precise advice and match you with the right equipment setup, tell me which crop timeline we are planning out today: Ragi, Rice, or Tomato?";
+    } else {
+      setState(() => aiStage = 1);
     }
 
-    _respondAsAI(contextualReply);
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-2.5-flash',
+        apiKey: 'AIzaSyDQs0C2qHIuoohZI_ikXn0yfe7DEQdzyN8',
+      );
+
+      final contextualPrompt =
+          "SYSTEM INSTRUCTIONS:\n"
+          "You are the intelligent, conversational Gemini AI Assistant built into the FarmRent app. "
+          "Your tone is professional, supportive, witty, and deeply analytical—exactly like an expert agronomy peer.\n"
+          "CRITICAL SCOPE RULE: You can answer ANY question as long as it relates to agriculture, soil biology, weather patterns, crop diseases, fertilizer calculations, tractor specifications, or machinery operations. "
+          "However, if the user asks about anything completely unrelated (like coding, software engineering, movies, pop culture, non-farming history, or cooking recipes), you must refuse to answer. Respond exactly with this phrase: "
+          "\"I am sorry, but I can only answer questions related to agriculture, crop planning, and equipment rentals.\"\n\n"
+          "USER INPUT:\n$rawInput";
+
+      final response = await model.generateContent([Content.text(contextualPrompt)]);
+
+      setState(() {
+        chatMessages.add({"role": "ai", "text": response.text ?? "Error generating advisory sequence."});
+        _isAiLoading = false;
+      });
+    } catch (e) {
+      debugPrint("=================================================");
+      debugPrint("🚨 DETAILED SYSTEM FAILURE TRACE: $e");
+      debugPrint("=================================================");
+
+      _respondAsAI("Connection error: Unable to compute model pipeline parameters.");
+      setState(() => _isAiLoading = false);
+    }
+    _scrollToBottom();
   }
 
   void _respondAsAI(String text) {
@@ -152,33 +202,309 @@ class _HomeHubTabState extends State<HomeHubTab> {
     });
   }
 
+  void _showFilterBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Refine Fleet Search",
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setModalState(() {
+                            _maxPriceFilter = 5000.0;
+                            _maxDistanceFilter = 50.0;
+                          });
+                        },
+                        child: const Text("Reset All", style: TextStyle(color: Colors.grey)),
+                      )
+                    ],
+                  ),
+                  const Divider(),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Max Price Limit", style: TextStyle(fontWeight: FontWeight.w600)),
+                      Text("₹${_maxPriceFilter.toInt()}/day", style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  Slider(
+                    value: _maxPriceFilter,
+                    min: 500.0,
+                    max: 5000.0,
+                    divisions: 9,
+                    activeColor: Colors.green.shade700,
+                    inactiveColor: Colors.green.shade100,
+                    onChanged: (val) {
+                      setModalState(() => _maxPriceFilter = val);
+                      setState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Max Distance Radius", style: TextStyle(fontWeight: FontWeight.w600)),
+                      Text("${_maxDistanceFilter.toInt()} km", style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  Slider(
+                    value: _maxDistanceFilter,
+                    min: 5.0,
+                    max: 50.0,
+                    divisions: 9,
+                    activeColor: Colors.green.shade700,
+                    inactiveColor: Colors.green.shade100,
+                    onChanged: (val) {
+                      setModalState(() => _maxDistanceFilter = val);
+                      setState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 18),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade700,
+                      minimumSize: const Size(double.infinity, 48),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("Apply Logistics Filters", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _triggerVoiceSearchInput() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.mic, color: Colors.green.shade200),
+            const SizedBox(width: 12),
+            const Text("Listening for machine models or owners..."),
+          ],
+        ),
+        backgroundColor: Colors.green.shade900,
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _getFilteredFleet() {
+    return widget.fleet.where((item) {
+      final nameMatches = (item['name'] ?? '').toString().toLowerCase().contains(_searchString.toLowerCase());
+      final ownerMatches = (item['ownerName'] ?? '').toString().toLowerCase().contains(_searchString.toLowerCase());
+
+      final rawRateString = (item['rate'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+      final parsedRate = double.tryParse(rawRateString) ?? 1200.0;
+      final distanceValue = double.tryParse((item['distance'] ?? '2.0').toString()) ?? 2.0;
+
+      return (nameMatches || ownerMatches) &&
+          (parsedRate <= _maxPriceFilter) &&
+          (distanceValue <= _maxDistanceFilter);
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     double totalLenderEarnings = widget.bookings
         .where((b) => b['role'] == 'lending' && b['status'] != 'PENDING')
         .fold(0.0, (sum, item) => sum + item['cost']);
 
+    final filteredFleetList = _getFilteredFleet();
+
     return Column(
       children: [
-        buildGlobalSearchHeader(
-          title: "FarmRent Hub",
-          bottomChild: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                widget.isLenderMode ? "🔧 Lender Control Space" : "🌾 Farmer Dashboard",
-                style: TextStyle(fontSize: 14, color: Colors.green[800], fontWeight: FontWeight.w600),
-              ),
-              Row(
-                children: [
-                  const Text("Lender View", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                  Switch(
-                    value: widget.isLenderMode,
-                    activeColor: Colors.green[700],
-                    onChanged: widget.onRoleChanged,
-                  ),
-                ],
+        // App Bar Header Design
+        Container(
+          padding: const EdgeInsets.only(top: 20, left: 16, right: 16, bottom: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
               )
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF2E7D32), Color(0xFF4CAF50)],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.agriculture_rounded, color: Colors.white, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "FarmRent Pro",
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.5,
+                              foreground: Paint()..shader = const LinearGradient(
+                                colors: [Color(0xFF1B5E20), Color(0xFF388E3C)],
+                              ).createShader(const Rect.fromLTWH(0.0, 0.0, 200.0, 70.0)),
+                            ),
+                          ),
+                          const Text(
+                            "Smart Yield Logistics",
+                            style: TextStyle(fontSize: 11, color: Colors.black38, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                          )
+                        ],
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                            _isSearchVisible ? Icons.search_off_outlined : Icons.search_rounded,
+                            color: _isSearchVisible ? Colors.red.shade700 : Colors.green.shade800
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _isSearchVisible = !_isSearchVisible;
+                            if (!_isSearchVisible) {
+                              _searchQueryController.clear();
+                              _searchString = "";
+                            }
+                          });
+                        },
+                      ),
+                      Stack(
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.notifications_none_rounded, color: Colors.grey.shade700),
+                            onPressed: () {},
+                          ),
+                          const Positioned(
+                            right: 12,
+                            top: 12,
+                            child: CircleAvatar(radius: 4, backgroundColor: Colors.orange),
+                          )
+                        ],
+                      ),
+                    ],
+                  )
+                ],
+              ),
+              if (_isSearchVisible) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.search, color: Colors.grey.shade600, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: _searchQueryController,
+                          style: const TextStyle(fontSize: 14),
+                          onChanged: (val) {
+                            setState(() => _searchString = val);
+                          },
+                          decoration: const InputDecoration(
+                            hintText: "Search by model name or provider...",
+                            border: InputBorder.none,
+                            hintStyle: TextStyle(fontSize: 13, color: Colors.black38),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.mic_none_rounded, color: Colors.green.shade700, size: 20),
+                        onPressed: _triggerVoiceSearchInput,
+                      ),
+                      Container(
+                        height: 24,
+                        width: 1,
+                        color: Colors.grey.shade300,
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.tune_rounded, color: Colors.green.shade700, size: 20),
+                        onPressed: _showFilterBottomSheet,
+                      ),
+                    ],
+                  ),
+                ),
+                if (_searchString.isNotEmpty || _maxPriceFilter < 5000 || _maxDistanceFilter < 50)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0, left: 4),
+                    child: Text(
+                      "Showing matches filtered by query constraints (${filteredFleetList.length} found)",
+                      style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    widget.isLenderMode ? "🔧 Lender Control Space" : "🌾 Farmer Dashboard",
+                    style: TextStyle(fontSize: 13, color: Colors.green[800], fontWeight: FontWeight.bold),
+                  ),
+                  Row(
+                    children: [
+                      Text(
+                        "Lender Mode",
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+                      ),
+                      const SizedBox(width: 4),
+                      Transform.scale(
+                        scale: 0.85,
+                        child: Switch(
+                          value: widget.isLenderMode,
+                          activeColor: Colors.green[700],
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          onChanged: widget.onRoleChanged,
+                        ),
+                      ),
+                    ],
+                  )
+                ],
+              ),
             ],
           ),
         ),
@@ -186,7 +512,6 @@ class _HomeHubTabState extends State<HomeHubTab> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              // Weather Status Card
               Row(
                 children: [
                   Expanded(
@@ -194,21 +519,48 @@ class _HomeHubTabState extends State<HomeHubTab> {
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFA726),
+                        color: _weatherCardColor,
                         borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _weatherCardColor.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          )
+                        ],
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text("32°C", style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
-                              SizedBox(height: 2),
-                              Text("Sunny Day", style: TextStyle(color: Colors.white70, fontSize: 13)),
-                            ],
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _currentTemperature,
+                                  style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 2),
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        _currentConditionText,
+                                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      const Icon(Icons.location_on, color: Colors.white70, size: 12),
+                                      const SizedBox(width: 2),
+                                      const Text("Bengaluru", style: TextStyle(color: Colors.white70, fontSize: 11)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          const Icon(Icons.wb_sunny, color: Colors.white, size: 44),
+                          const SizedBox(width: 8),
+                          Icon(_weatherIcon, color: Colors.white, size: 40),
                         ],
                       ),
                     ),
@@ -239,23 +591,24 @@ class _HomeHubTabState extends State<HomeHubTab> {
                 ],
               ),
               const SizedBox(height: 20),
-
-              // Crop Advisory Block
-              const Text("Crop Advisory", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const Text("Climate Crop Advisory", style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 10),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: Container(
                       padding: const EdgeInsets.all(12),
+                      constraints: const BoxConstraints(minHeight: 105),
                       decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(15)),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 18),
-                          SizedBox(height: 4),
-                          Text("Grow: Ragi", style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold, fontSize: 13)),
-                          Text("Climate is ideal.", style: TextStyle(color: Colors.black54, fontSize: 11)),
+                        children: [
+                          const Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 18),
+                          const SizedBox(height: 4),
+                          Text("Grow: $_recommendedCrop", style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold, fontSize: 13)),
+                          const SizedBox(height: 2),
+                          Text(_recommendedReason, style: const TextStyle(color: Colors.black54, fontSize: 11, height: 1.2)),
                         ],
                       ),
                     ),
@@ -264,14 +617,16 @@ class _HomeHubTabState extends State<HomeHubTab> {
                   Expanded(
                     child: Container(
                       padding: const EdgeInsets.all(12),
+                      constraints: const BoxConstraints(minHeight: 105),
                       decoration: BoxDecoration(color: const Color(0xFFFFEBEE), borderRadius: BorderRadius.circular(15)),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Icon(Icons.warning, color: Color(0xFFEF5350), size: 18),
-                          SizedBox(height: 4),
-                          Text("Avoid: Tomato", style: TextStyle(color: Color(0xFFC62828), fontWeight: FontWeight.bold, fontSize: 13)),
-                          Text("High pest risk.", style: TextStyle(color: Colors.black54, fontSize: 11)),
+                        children: [
+                          const Icon(Icons.warning, color: Color(0xFFEF5350), size: 18),
+                          const SizedBox(height: 4),
+                          Text("Avoid: $_avoidCrop", style: const TextStyle(color: Color(0xFFC62828), fontWeight: FontWeight.bold, fontSize: 13)),
+                          const SizedBox(height: 2),
+                          Text(_avoidReason, style: const TextStyle(color: Colors.black54, fontSize: 11, height: 1.2)),
                         ],
                       ),
                     ),
@@ -279,69 +634,236 @@ class _HomeHubTabState extends State<HomeHubTab> {
                 ],
               ),
               const SizedBox(height: 24),
-
-              // Real-Time Dynamic Conversational AI Box
               if (!widget.isLenderMode) ...[
                 const Text("AI Field Assistant", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                 const SizedBox(height: 10),
                 _buildDynamicChatConsole(),
               ],
-
-              // Fleet Garage Section
               if (widget.isLenderMode) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("My Equipment Garage", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                    IconButton(
-                      icon: const Icon(Icons.add_circle, color: Color(0xFF4CAF50), size: 28),
-                      onPressed: () => _showAddEquipmentDialog(context),
-                    )
-                  ],
-                ),
-                const SizedBox(height: 10),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2, childAspectRatio: 1.3, crossAxisSpacing: 10, mainAxisSpacing: 10
-                  ),
-                  itemCount: widget.fleet.length,
-                  itemBuilder: (context, index) {
-                    final item = widget.fleet[index];
-                    bool isActive = item['status'] == 'Active Lease';
-                    return Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                          color: Colors.white, borderRadius: BorderRadius.circular(15),
-                          border: Border.all(color: Colors.grey.shade300)
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
-                              Text("${item['hp'] ?? 'N/A'} • ${item['type']}", style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                            ],
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(color: isActive ? Colors.green[100] : Colors.amber[100], borderRadius: BorderRadius.circular(8)),
-                            child: Text(item['status'], style: TextStyle(color: isActive ? Colors.green[800] : Colors.amber[900], fontSize: 10, fontWeight: FontWeight.bold)),
-                          )
-                        ],
-                      ),
-                    );
-                  },
-                )
-              ]
+                _buildGarageSection(filteredFleetList),
+              ],
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildGarageSection(List<Map<String, dynamic>> filteredFleetList) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text("My Equipment Garage", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+            IconButton(
+              icon: const Icon(Icons.add_circle, color: Color(0xFF4CAF50), size: 28),
+              onPressed: () => _showAddEquipmentDialog(context),
+            )
+          ],
+        ),
+        const SizedBox(height: 10),
+        filteredFleetList.isEmpty
+            ? const Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 24.0),
+            child: Text("No machinery matches current search metrics.", style: TextStyle(color: Colors.black38, fontSize: 13)),
+          ),
+        )
+            : ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: filteredFleetList.length,
+          itemBuilder: (context, index) {
+            return _buildGarageItemCard(filteredFleetList[index]);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGarageItemCard(Map<String, dynamic> item) {
+    Color statusColor = Colors.grey.shade600;
+    Color statusBg = Colors.grey.shade100;
+    String assetStatus = item['status'] ?? 'Idle in Garage';
+
+    if (assetStatus.contains('Active Lease') || assetStatus.contains('Working')) {
+      statusColor = const Color(0xFF2E7D32);
+      statusBg = const Color(0xFFE8F5E9);
+    } else if (assetStatus.contains('Awaiting') || assetStatus.contains('Scheduled')) {
+      statusColor = const Color(0xFFE65100);
+      statusBg = const Color(0xFFFFF3E0);
+    }
+
+    String rateDisplay = item['rate'] != null ? item['rate'].toString() : "₹1,200/day";
+    if (!rateDisplay.contains('₹')) rateDisplay = "₹$rateDisplay/day";
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: Colors.grey.shade200, width: 1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (item['imageUrl'] != null && item['imageUrl'].toString().isNotEmpty)
+            ClipRRect(
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+              child: Image.network(
+                item['imageUrl'],
+                height: 140,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 140,
+                  color: Colors.grey[200],
+                  child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item['name'] ?? 'Unnamed Machinery',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  item['type'] ?? 'General Purpose',
+                                  style: TextStyle(color: Colors.green.shade800, fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              if (item['ownerName'] != null) ...[
+                                const SizedBox(width: 6),
+                                Text(
+                                  "👤 ${item['ownerName']}",
+                                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                                )
+                              ]
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                        decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(20)),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircleAvatar(backgroundColor: statusColor, radius: 3.5),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                assetStatus,
+                                style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  ],
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Divider(height: 1, color: Color(0xFFF5F5F5)),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.bolt, size: 16, color: Colors.amber.shade700),
+                        const SizedBox(width: 4),
+                        Text(
+                          "${item['hp'] ?? '45 HP'} Capability",
+                          style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      rateDisplay,
+                      style: const TextStyle(color: Color(0xFF1B5E20), fontSize: 14, fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          side: BorderSide(color: Colors.grey.shade300),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: Icon(Icons.edit_note_rounded, size: 16, color: Colors.black.withOpacity(0.54)),
+                        label: const Text(
+                          "Edit Listing",
+                          style: TextStyle(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("Editing structural variables for: ${item['name']}")),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          side: BorderSide(color: Colors.red.shade100),
+                          backgroundColor: Colors.red.shade50.withOpacity(0.3),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: Icon(Icons.pause_circle_outline_rounded, size: 16, color: Colors.red.shade700),
+                        label: Text("Pause Visibility", style: TextStyle(color: Colors.red.shade900, fontSize: 11, fontWeight: FontWeight.bold)),
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Asset visibility status toggled offline for maintenance.")),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -357,15 +879,24 @@ class _HomeHubTabState extends State<HomeHubTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              CircleAvatar(backgroundColor: Colors.green[100], radius: 14, child: const Icon(Icons.psychology, size: 16, color: Color(0xFF4CAF50))),
-              const SizedBox(width: 8),
-              const Text("FarmAI Engine", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
+              Row(
+                children: [
+                  CircleAvatar(backgroundColor: Colors.green[100], radius: 14, child: const Icon(Icons.psychology, size: 16, color: Color(0xFF4CAF50))),
+                  const SizedBox(width: 8),
+                  const Text("FarmAI Engine", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
+                ],
+              ),
+              if (_isAiLoading)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4CAF50)),
+                ),
             ],
           ),
           const Divider(height: 20),
-
-          // Scrollable Chat Terminal Screen
           Container(
             height: 200,
             decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
@@ -395,14 +926,25 @@ class _HomeHubTabState extends State<HomeHubTab> {
             ),
           ),
           const SizedBox(height: 12),
-
-          // Contextual Multi-Asset Form Injections
           if (aiStage == 2) ...[
+            Container(
+              padding: const EdgeInsets.all(10),
+              color: Colors.green[50],
+              child: Text(
+                "📋 Dynamic Machinery Bundle for: $selectedCrop",
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF2E7D32)),
+              ),
+            ),
+            const SizedBox(height: 4),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(8)),
               child: Column(
-                children: (cropBundles[selectedCrop] ?? ['Generic Tractor']).map((tool) {
+                children: (cropBundles[selectedCrop] ?? [
+                  'Utility Tractor (50 HP)',
+                  'Multi-Crop Disc Harrow',
+                  'Heavy Duty Haulage Trailer'
+                ]).map((tool) {
                   bool checked = selectedTools.contains(tool);
                   return CheckboxListTile(
                     title: Text(tool, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
@@ -429,7 +971,8 @@ class _HomeHubTabState extends State<HomeHubTab> {
           ] else if (aiStage == 3) ...[
             ...providersList.map((prov) {
               return Card(
-                elevation: 0, shape: RoundedRectangleBorder(side: BorderSide(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+                shape: RoundedRectangleBorder(side: BorderSide(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
                   title: Text(prov['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   subtitle: Text("${prov['distance']} km • ⭐ ${prov['rating']}"),
@@ -494,10 +1037,7 @@ class _HomeHubTabState extends State<HomeHubTab> {
               child: const Text("Run Another Field Search Sequence", style: TextStyle(fontSize: 11)),
             )
           ],
-
           const Divider(height: 20),
-
-          // Custom Input Area
           Row(
             children: [
               Expanded(
@@ -533,35 +1073,228 @@ class _HomeHubTabState extends State<HomeHubTab> {
   }
 
   void _showAddEquipmentDialog(BuildContext context) {
-    String name = ""; String type = "Tillage"; String hp = "45 HP"; int rate = 1000;
+    String name = "";
+    String type = "Tillage";
+    String hpValue = "50";
+    String status = "Idle in Garage";
+    int rate = 1500;
+    String billingUnit = "/day";
+    String ownerName = "";
+    File? selectedLocalImageFile;
+
     showDialog(
       context: context,
-      builder: (c) => AlertDialog(
-        title: const Text("Register Fleet Asset"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(decoration: const InputDecoration(labelText: "Machine Model Title"), onChanged: (v) => name = v),
-            DropdownButtonFormField<String>(
-              value: type,
-              items: ['Tillage', 'Sowing', 'Harvesting', 'Protection'].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-              onChanged: (v) => type = v!,
+      builder: (c) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(Icons.playlist_add_rounded, color: Colors.green.shade700),
+              const SizedBox(width: 8),
+              const Text("Register Fleet Asset", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: GestureDetector(
+                    onTap: () async {
+                      final XFile? pickedMedia = await ImagePicker().pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 70,
+                      );
+                      if (pickedMedia != null) {
+                        setModalState(() {
+                          selectedLocalImageFile = File(pickedMedia.path);
+                        });
+                      }
+                    },
+                    child: Container(
+                      height: 120,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
+                      ),
+                      child: selectedLocalImageFile != null
+                          ? ClipRRect(
+                        borderRadius: BorderRadius.circular(11),
+                        child: Image.file(selectedLocalImageFile!, fit: BoxFit.cover),
+                      )
+                          : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_a_photo_outlined, size: 28, color: Colors.green.shade700),
+                          const SizedBox(height: 6),
+                          const Text("Add Machine Photo", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: "Machine Model Title",
+                    hintText: "e.g., John Deere 5050E",
+                    prefixIcon: Icon(Icons.label_outline_rounded, size: 20),
+                  ),
+                  onChanged: (v) => name = v,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: "Owner/Lender Full Name",
+                    hintText: "e.g., Ramesh Kumar",
+                    prefixIcon: Icon(Icons.person_outline_rounded, size: 20),
+                  ),
+                  onChanged: (v) => ownerName = v,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: type,
+                  decoration: const InputDecoration(
+                    labelText: "Category Sub-Tag",
+                    prefixIcon: Icon(Icons.category_outlined, size: 20),
+                  ),
+                  items: ['Tillage', 'Sowing', 'Harvesting', 'Protection']
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      .toList(),
+                  onChanged: (v) => type = v!,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: status,
+                  decoration: const InputDecoration(
+                    labelText: "Initial Availability Status",
+                    prefixIcon: Icon(Icons.signal_cellular_alt_rounded, size: 20),
+                  ),
+                  items: ['Idle in Garage', 'Active Lease', 'Awaiting Delivery']
+                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                      .toList(),
+                  onChanged: (v) => status = v!,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: "Performance Capability (HP)",
+                    hintText: "e.g., 50",
+                    prefixIcon: Icon(Icons.bolt, size: 20),
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (v) => hpValue = v,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        decoration: const InputDecoration(
+                          labelText: "Rental Rate (₹)",
+                          prefixIcon: Icon(Icons.currency_rupee_rounded, size: 20),
+                        ),
+                        keyboardType: TextInputType.number,
+                        onChanged: (v) => rate = int.tryParse(v) ?? 1500,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: DropdownButtonFormField<String>(
+                        value: billingUnit,
+                        decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 4)),
+                        items: const [
+                          DropdownMenuItem(value: '/day', child: Text("/day")),
+                          DropdownMenuItem(value: '/hr', child: Text("/hr")),
+                        ],
+                        onChanged: (v) => setModalState(() => billingUnit = v!),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            TextField(decoration: const InputDecoration(labelText: "Rental Rate (₹/Day)"), keyboardType: TextInputType.number, onChanged: (v) => rate = int.tryParse(v) ?? 1000),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: Text("Cancel", style: TextStyle(color: Colors.grey.shade600)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                if (name.trim().isNotEmpty) {
+                  try {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Syncing equipment to cloud...")),
+                    );
+
+                    String uploadedImageUrl = "";
+                    if (selectedLocalImageFile != null) {
+                      String fileIdHash = "${DateTime.now().millisecondsSinceEpoch}.jpg";
+                      Reference storageBucketPathRef = FirebaseStorage.instance.ref().child('machinery_fleet/$fileIdHash');
+
+                      UploadTask assetUploadTask = storageBucketPathRef.putFile(selectedLocalImageFile!);
+                      TaskSnapshot completedTaskSnapshot = await assetUploadTask;
+                      uploadedImageUrl = await completedTaskSnapshot.ref.getDownloadURL();
+                    }
+
+                    String calibratedHp = hpValue.trim().toUpperCase().contains('HP')
+                        ? hpValue.trim().toUpperCase()
+                        : '${hpValue.trim()} HP';
+                    String compiledRateString = '₹$rate$billingUnit';
+
+                    await FirebaseFirestore.instance.collection('fleet').add({
+                      'name': name.trim(),
+                      'ownerName': ownerName.trim().isEmpty ? 'Private Owner' : ownerName.trim(),
+                      'type': type,
+                      'status': status,
+                      'hp': calibratedHp,
+                      'rate': compiledRateString,
+                      'imageUrl': uploadedImageUrl,
+                      'distance': 4.5,
+                      'created_at': Timestamp.now(),
+                    });
+
+                    widget.onEquipmentAdded({
+                      'name': name.trim(),
+                      'ownerName': ownerName.trim().isEmpty ? 'Private Owner' : ownerName.trim(),
+                      'type': type,
+                      'status': status,
+                      'hp': calibratedHp,
+                      'rate': compiledRateString,
+                      'imageUrl': uploadedImageUrl,
+                      'distance': 4.5,
+                    });
+
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Equipment successfully listed in database!")),
+                      );
+                      Navigator.pop(c);
+                    }
+                  } catch (error) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Cloud pipeline failed: $error")),
+                      );
+                    }
+                  }
+                }
+              },
+              child: const Text("Save Listing", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text("Cancel")),
-          ElevatedButton(
-            onPressed: () {
-              if (name.isNotEmpty) {
-                widget.onEquipmentAdded({'name': name, 'type': type, 'status': 'Idle in Garage', 'hp': hp, 'rate': '₹$rate/day'});
-              }
-              Navigator.pop(c);
-            },
-            child: const Text("Save"),
-          )
-        ],
       ),
     );
   }
