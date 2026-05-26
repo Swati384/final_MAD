@@ -16,9 +16,9 @@ class _PaymentsTabState extends State<PaymentsTab> {
   Widget build(BuildContext context) {
     DateTime now = DateTime(2026, 5, 21);
 
-    // Dynamic reactive filtering pipeline parsing logic
+    // Filter pipeline logic: Exclude both Pending and Denied items from accounting data pools
     List<Map<String, dynamic>> filteredTransactions = widget.bookings.where((b) {
-      if (b['status'] == 'PENDING') return false;
+      if (b['status'] == 'PENDING' || b['status'] == 'DENIED') return false;
       if (activeTimeFilter == "WEEK") {
         return now.difference(b['timestamp']).inDays <= 7;
       } else if (activeTimeFilter == "MONTH") {
@@ -111,36 +111,45 @@ class _PaymentsTabState extends State<PaymentsTab> {
               const Text("Transaction Ledger History", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 10),
 
-              ...filteredTransactions.map((tx) {
-                bool isGain = tx['role'] == 'lending';
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: const Color(0xFFE5EBE5))),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: isGain ? const Color(0xFFE8F5E9) : Colors.grey[100],
-                        child: Icon(Icons.account_balance_wallet, color: isGain ? const Color(0xFF4CAF50) : Colors.grey, size: 20),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(tx['title'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                            Text("Cleared via ${tx['paymentMethod']} • Ref #TXN${tx['id']}", style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                          ],
+              filteredTransactions.isEmpty
+                  ? Padding(
+                padding: const EdgeInsets.symmetric(vertical: 30.0),
+                child: Center(
+                  child: Text("No transactions recorded for this period.", style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                ),
+              )
+                  : Column(
+                children: filteredTransactions.map((tx) {
+                  bool isGain = tx['role'] == 'lending';
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: const Color(0xFFE5EBE5))),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: isGain ? const Color(0xFFE8F5E9) : Colors.grey[100],
+                          child: Icon(Icons.account_balance_wallet, color: isGain ? const Color(0xFF4CAF50) : Colors.grey, size: 20),
                         ),
-                      ),
-                      Text(
-                        "${isGain ? '+' : '−'}₹${tx['cost']}",
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isGain ? const Color(0xFF4CAF50) : Colors.black87),
-                      )
-                    ],
-                  ),
-                );
-              }),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(tx['title'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              Text("Cleared via ${tx['paymentMethod']} • Ref #TXN${tx['id']}", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          "${isGain ? '+' : '−'}₹${tx['cost']}",
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isGain ? const Color(0xFF4CAF50) : Colors.black87),
+                        )
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
             ],
           ),
         )

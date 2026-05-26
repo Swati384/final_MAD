@@ -24,8 +24,8 @@ class _BookingsTabState extends State<BookingsTab> {
     // 1. Core Data Classification Rules
     final allItems = widget.bookings;
     final pendingItems = widget.bookings.where((b) => b['status'] == 'PENDING').toList();
-    final lendingItems = widget.bookings.where((b) => b['role'] == 'lending' && b['status'] != 'PENDING').toList();
-    final rentingItems = widget.bookings.where((b) => b['role'] == 'renting' && b['status'] != 'PENDING').toList();
+    final lendingItems = widget.bookings.where((b) => b['role'] == 'lending' && b['status'] != 'PENDING' && b['status'] != 'DENIED').toList();
+    final rentingItems = widget.bookings.where((b) => b['role'] == 'renting' && b['status'] != 'PENDING' && b['status'] != 'DENIED').toList();
 
     // 2. Select display source list based on active structural segment
     List<Map<String, dynamic>> itemsToDisplay;
@@ -90,6 +90,8 @@ class _BookingsTabState extends State<BookingsTab> {
               // Determine layout pattern directly from the runtime object mapping keys
               if (item['status'] == 'PENDING') {
                 return _buildPendingCard(item);
+              } else if (item['status'] == 'DENIED') {
+                return _buildDeniedCard(item);
               } else if (item['role'] == 'lending') {
                 return _buildLendingCard(item);
               } else {
@@ -174,7 +176,7 @@ class _BookingsTabState extends State<BookingsTab> {
     );
   }
 
-  /// Form Factor Card: Pending Requests Pipeline
+  /// Form Factor Card: Pending Requests Pipeline with Accept/Deny Handlers
   Widget _buildPendingCard(Map<String, dynamic> item) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -200,7 +202,18 @@ class _BookingsTabState extends State<BookingsTab> {
           ),
           const SizedBox(height: 6),
           Text(item['meta'] ?? '', style: const TextStyle(color: Colors.black54, fontSize: 13)),
-          const SizedBox(height: 4),
+          if (item['renterReview'] != null) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(8)),
+              child: Text(
+                "⭐ ${item['renterRating'] ?? '4.5'} • \"${item['renterReview']}\"",
+                style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.black87),
+              ),
+            ),
+          ],
+          const SizedBox(height: 6),
           Text("Revenue Matrix: ₹${item['cost']}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
           const Divider(height: 20),
           Row(
@@ -209,20 +222,67 @@ class _BookingsTabState extends State<BookingsTab> {
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700], elevation: 0),
                 onPressed: () {
                   item['status'] = 'ACTIVE';
-                  item['role'] = 'lending';
+                  item['role'] = 'lending'; // Changes role to display in Lender view & payments calculations
                   widget.onBookingsChanged();
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("🎉 Request Accepted! Moving item into active lending cycle.")),
+                  );
                 },
                 child: const Text("Accept Request", style: TextStyle(color: Colors.white, fontSize: 12)),
               ),
               const SizedBox(width: 8),
               TextButton(
                 onPressed: () {
-                  widget.bookings.remove(item);
+                  setState(() {
+                    item['status'] = 'DENIED'; // Flags tracking status state
+                  });
                   widget.onBookingsChanged();
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("❌ Request Declined. Renter dashboard will reflect the denial notice.")),
+                  );
                 },
                 child: const Text("Decline", style: TextStyle(color: Colors.red, fontSize: 12)),
               )
             ],
+          )
+        ],
+      ),
+    );
+  }
+
+  /// Form Factor Card: Denied/Declined Status Alerts
+  /// Form Factor Card: Denied/Declined Status Alerts
+  Widget _buildDeniedCard(Map<String, dynamic> item) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red[50],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(child: Text(item['title'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: Colors.red[700], borderRadius: BorderRadius.circular(8)),
+                child: const Text("DECLINED", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+              )
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(item['meta'] ?? '', style: const TextStyle(color: Colors.black54, fontSize: 13)),
+          const SizedBox(height: 4),
+          const Text(
+            "Notification trace: Booking was rejected by the platform operator or equipment owner.",
+            style: TextStyle(fontSize: 11, color: Colors.red, fontStyle: FontStyle.italic),
           )
         ],
       ),

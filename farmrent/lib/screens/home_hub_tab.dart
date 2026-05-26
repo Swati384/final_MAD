@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+
+// Connects directly to the backend file you created
+import 'fleet_backend_service.dart';
 
 class HomeHubTab extends StatefulWidget {
   final bool isLenderMode;
@@ -73,6 +77,14 @@ class _HomeHubTabState extends State<HomeHubTab> {
     {'name': 'Ganesh Rentals', 'distance': 1.2, 'rating': 4.9, 'reviews': 120, 'rate': 1200},
     {'name': 'Balaji Agri Fleet', 'distance': 2.4, 'rating': 4.7, 'reviews': 85, 'rate': 1400},
   ];
+
+  // Mapping categories to specialized sub-machinery types
+  final Map<String, List<String>> _categoryToEquipmentMap = {
+    'Tillage': ['Rotavator', 'Cultivator', 'Disc Plough', 'Power Tiller'],
+    'Sowing & Plantation': ['Seed Drill', 'Pneumatic Planter', 'Paddy Transplanter'],
+    'Harvesting': ['Combine Harvester', 'Thresher', 'Straw Reaper'],
+    'Protection & Irrigation': ['Boom Sprayer', 'Power Knapsack Sprayer', 'Water Pump'],
+  };
 
   @override
   void initState() {
@@ -326,6 +338,397 @@ class _HomeHubTabState extends State<HomeHubTab> {
     }).toList();
   }
 
+  void _showAddEquipmentDialog(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        File? selectedImageFile;
+        String equipmentNameInput = "";
+        String selectedCategory = 'Tillage';
+        String selectedEquipmentType = 'Rotavator';
+        String rentalRate = "1200";
+
+        // Local state hooks for tracking dynamic specs within the sheet
+        String specPowerHP = "";
+        String specDriveType = "4WD";
+        String specLiftCapacity = "";
+        String specWorkingWidth = "";
+        String specBladeCount = "";
+        String specTankVolume = "";
+        String specGenericSpecs = "";
+
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            List<String> equipmentOptions = _categoryToEquipmentMap[selectedCategory] ?? [];
+
+            return Container(
+              margin: const EdgeInsets.only(top: 60),
+              decoration: const BoxDecoration(
+                color: Color(0xFFEDEEE9),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              padding: EdgeInsets.only(
+                top: 24,
+                left: 24,
+                right: 24,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.playlist_add_rounded, color: Color(0xFF2E7D32), size: 24),
+                        const SizedBox(width: 10),
+                        const Text(
+                          "Register Fleet Asset",
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Asset Image Capture Field Box with Camera/Photos Option Dialog Selector
+                    GestureDetector(
+                      onTap: () async {
+                        final picker = ImagePicker();
+
+                        // Display an AlertDialog to ask the user for their media source
+                        final ImageSource? selectedSource = await showDialog<ImageSource>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            title: const Text("Select Machine Photo", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            content: const Text("Would you like to snap a new photo or browse your device gallery?"),
+                            actions: [
+                              TextButton.icon(
+                                icon: const Icon(Icons.photo_library, color: Color(0xFF2E7D32)),
+                                label: const Text("Photos", style: TextStyle(color: Colors.black87)),
+                                onPressed: () => Navigator.pop(context, ImageSource.gallery),
+                              ),
+                              TextButton.icon(
+                                icon: const Icon(Icons.camera_alt, color: Color(0xFF2E7D32)),
+                                label: const Text("Camera", style: TextStyle(color: Colors.black87)),
+                                onPressed: () => Navigator.pop(context, ImageSource.camera),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        // If the user picked an option, trigger the image picker
+                        if (selectedSource != null) {
+                          final picked = await picker.pickImage(source: selectedSource);
+                          if (picked != null) {
+                            setModalState(() => selectedImageFile = File(picked.path));
+                          }
+                        }
+                      },
+                      child: Container(
+                        height: 130,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF5F5F5),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.black12),
+                          image: selectedImageFile != null
+                              ? DecorationImage(image: FileImage(selectedImageFile!), fit: BoxFit.cover)
+                              : null,
+                        ),
+                        child: selectedImageFile == null
+                            ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.add_a_photo_outlined, color: Color(0xFF2E7D32), size: 32),
+                            SizedBox(height: 8),
+                            Text("Add Machine Photo", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black54)),
+                          ],
+                        )
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Primary Category Dropdown Selection
+                    DropdownButtonFormField<String>(
+                      value: selectedCategory,
+                      decoration: const InputDecoration(
+                        labelText: "Select Classification Category",
+                        prefixIcon: Icon(Icons.category_outlined, size: 20),
+                        border: UnderlineInputBorder(),
+                      ),
+                      items: _categoryToEquipmentMap.keys
+                          .map((category) => DropdownMenuItem(value: category, child: Text(category)))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setModalState(() {
+                            selectedCategory = val;
+                            selectedEquipmentType = _categoryToEquipmentMap[val]!.first;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Dependent Equipment Sub-Type Dropdown Selection
+                    DropdownButtonFormField<String>(
+                      value: selectedEquipmentType,
+                      decoration: const InputDecoration(
+                        labelText: "What Equipment is This?",
+                        prefixIcon: Icon(Icons.build_circle_outlined, size: 20),
+                        border: UnderlineInputBorder(),
+                      ),
+                      items: equipmentOptions
+                          .map((type) => DropdownMenuItem(value: type, child: Text(type)))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setModalState(() => selectedEquipmentType = val);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Unified Model and Equipment Title Text Field
+                    TextField(
+                      onChanged: (val) => equipmentNameInput = val,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.precision_manufacturing_outlined, size: 20),
+                        hintText: "Enter Equipment Name / Model (e.g., Mahindra Yuvo 575)",
+                        hintStyle: TextStyle(color: Colors.black38),
+                        border: UnderlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    const Text(
+                      "Equipment Specifications",
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black54),
+                    ),
+                    const Divider(color: Colors.black12),
+                    const SizedBox(height: 8),
+
+                    // Custom Contextual Form Engine Pipeline
+                        () {
+                      switch (selectedEquipmentType) {
+                        case 'Heavy Duty Tractor':
+                        case 'Mahindra Tractor':
+                        case 'Power Tiller':
+                          return Column(
+                            children: [
+                              TextField(
+                                onChanged: (val) => specPowerHP = val,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.flash_on_rounded, size: 20),
+                                  hintText: "Engine Power (e.g., 55 HP)",
+                                  border: UnderlineInputBorder(),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              DropdownButtonFormField<String>(
+                                value: specDriveType,
+                                decoration: const InputDecoration(
+                                  labelText: "Drive Configuration",
+                                  prefixIcon: Icon(Icons.grid_4x4_rounded, size: 20),
+                                  border: UnderlineInputBorder(),
+                                ),
+                                items: ['2WD', '4WD'].map((val) => DropdownMenuItem(value: val, child: Text(val))).toList(),
+                                onChanged: (val) { if (val != null) setModalState(() => specDriveType = val); },
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                onChanged: (val) => specLiftCapacity = val,
+                                decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.g_mobiledata_rounded, size: 20),
+                                  hintText: "Max Hitch Lift Capacity (e.g., 1800 kg)",
+                                  border: UnderlineInputBorder(),
+                                ),
+                              ),
+                            ],
+                          );
+
+                        case 'Rotavator':
+                        case 'Compatible Rotavator':
+                        case 'Cultivator':
+                        case 'Disc Plough':
+                          return Column(
+                            children: [
+                              TextField(
+                                onChanged: (val) => specWorkingWidth = val,
+                                decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.straighten_rounded, size: 20),
+                                  hintText: "Working Width (e.g., 7 Feet / 42 Tynes)",
+                                  border: UnderlineInputBorder(),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                onChanged: (val) => specBladeCount = val,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.settings_suggest_outlined, size: 20),
+                                  hintText: "Number of Blades (e.g., 36 or 42 Blades)",
+                                  border: UnderlineInputBorder(),
+                                ),
+                              ),
+                            ],
+                          );
+
+                        case 'Boom Sprayer':
+                        case 'Power Sprayer':
+                        case 'Power Knapsack Sprayer':
+                        case 'Water Pump':
+                          return Column(
+                            children: [
+                              TextField(
+                                onChanged: (val) => specTankVolume = val,
+                                decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.opacity_rounded, size: 20),
+                                  hintText: "Tank Fluid Capacity (e.g., 500 Liters)",
+                                  border: UnderlineInputBorder(),
+                                ),
+                              ),
+                            ],
+                          );
+
+                        case 'Combine Harvester':
+                        case 'High-Capacity Harvester':
+                        case 'Straw Reaper':
+                        case 'Thresher':
+                          return Column(
+                            children: [
+                              TextField(
+                                onChanged: (val) => specWorkingWidth = val,
+                                decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.content_cut_rounded, size: 20),
+                                  hintText: "Cutter Bar Width (e.g., 14 Feet)",
+                                  border: UnderlineInputBorder(),
+                                ),
+                              ),
+                            ],
+                          );
+
+                        default:
+                          return TextField(
+                            onChanged: (val) => specGenericSpecs = val,
+                            decoration: const InputDecoration(
+                              prefixIcon: Icon(Icons.construction_rounded, size: 20),
+                              hintText: "Operational Specifications (e.g., Universal Size)",
+                              border: UnderlineInputBorder(),
+                            ),
+                          );
+                      }
+                    }(),
+                    const SizedBox(height: 16),
+
+                    // Dynamic Pricing Multiplier Selector
+                    DropdownButtonFormField<String>(
+                      value: rentalRate,
+                      decoration: const InputDecoration(
+                        labelText: "Set Base Daily Rental Fee",
+                        prefixIcon: Icon(Icons.currency_rupee_rounded, size: 20),
+                        border: UnderlineInputBorder(),
+                      ),
+                      items: ['800', '1000', '1200', '1400', '1600', '2000', '2500']
+                          .map((val) => DropdownMenuItem(value: val, child: Text("₹$val per day")))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) setModalState(() => rentalRate = val);
+                      },
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Form Action Controls
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text("Cancel", style: TextStyle(color: Colors.black54, fontSize: 15, fontWeight: FontWeight.w600)),
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF008736),
+                            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () async {
+                            // Validate that a name has been input before running pipelines
+                            if (equipmentNameInput.trim().isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text("Please enter a valid equipment name.")),
+                              );
+                              return;
+                            }
+
+                            // Pack contextual fields securely to dictionary map array schemas
+                            Map<String, String> specsPayload = {
+                              if (selectedEquipmentType.contains('Tractor') || selectedEquipmentType.contains('Tiller')) ...{
+                                "power": specPowerHP, "drive": specDriveType, "lift": specLiftCapacity
+                              } else if (selectedEquipmentType.contains('Rotavator') || selectedEquipmentType.contains('Cultivator') || selectedEquipmentType.contains('Plough')) ...{
+                                "width": specWorkingWidth, "blades": specBladeCount
+                              } else if (selectedEquipmentType.contains('Sprayer') || selectedEquipmentType.contains('Pump')) ...{
+                                "tank": specTankVolume
+                              } else if (selectedEquipmentType.contains('Harvester') || selectedEquipmentType.contains('Reaper') || selectedEquipmentType.contains('Thresher')) ...{
+                                "cutter": specWorkingWidth
+                              } else ...{
+                                "generic": specGenericSpecs
+                              }
+                            };
+
+                            try {
+                              final double parsedRate = double.tryParse(rentalRate) ?? 1200.0;
+
+                              // Fire data payload stream directly to Firebase storage pipelines
+                              await FleetBackendService().deployNewAsset(
+                                equipmentName: equipmentNameInput,
+                                category: selectedCategory,
+                                type: selectedEquipmentType,
+                                ratePerDay: parsedRate,
+                                imageFile: selectedImageFile,
+                                preparedSpecs: specsPayload,
+                              );
+
+                              // Build local representation map matching user grid schema targets
+                              Map<String, dynamic> newAssetData = {
+                                "name": equipmentNameInput,
+                                "category": selectedCategory,
+                                "type": selectedEquipmentType,
+                                "rate": "₹${parsedRate.toInt()}/day",
+                                "distance": "0.0",
+                                "ownerName": "Me (Lender)",
+                                "specs": specsPayload,
+                                "imagePath": selectedImageFile?.path ?? "",
+                              };
+
+                              // Pass up to parent component stream state loops to update UI instantly
+                              widget.onEquipmentAdded(newAssetData);
+
+                              Navigator.pop(context);
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(backgroundColor: Colors.red.shade800, content: Text("Database Pipeline Failure: $e")),
+                              );
+                            }
+                          },
+                          child: const Text("Deploy Asset", style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
   @override
   Widget build(BuildContext context) {
     double totalLenderEarnings = widget.bookings
@@ -624,7 +1027,7 @@ class _HomeHubTabState extends State<HomeHubTab> {
                         children: [
                           const Icon(Icons.warning, color: Color(0xFFEF5350), size: 18),
                           const SizedBox(height: 4),
-                          Text("Avoid: $_avoidCrop", style: const TextStyle(color: Color(0xFFC62828), fontWeight: FontWeight.bold, fontSize: 13)),
+                          Text("Avoid: $_avoidCrop", style: const TextStyle(color: Color(0xFF000000), fontWeight: FontWeight.bold, fontSize: 13)),
                           const SizedBox(height: 2),
                           Text(_avoidReason, style: const TextStyle(color: Colors.black54, fontSize: 11, height: 1.2)),
                         ],
@@ -646,6 +1049,155 @@ class _HomeHubTabState extends State<HomeHubTab> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDynamicChatConsole() {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade200, width: 1.5),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 12, offset: const Offset(0, 4))
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18)),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 6,
+                  backgroundColor: _isAiLoading ? Colors.orange : Colors.green,
+                ),
+                const SizedBox(width: 10),
+                const Text(
+                  "Gemini Smart Assistant Pipeline",
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (aiStage == 2) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              color: Colors.orange.shade50,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Select machinery bundle tools for cultivating $selectedCrop:",
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: (cropBundles[selectedCrop] ?? ['Standard Tractor', 'Universal Tiller']).map((tool) {
+                      final isChosen = selectedTools.contains(tool);
+                      return ChoiceChip(
+                        label: Text(
+                          tool,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isChosen ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                        selected: isChosen,
+                        selectedColor: Colors.green,
+                        onSelected: (selected) {
+                          setState(() {
+                            if (selected) {
+                              selectedTools.add(tool);
+                            } else {
+                              selectedTools.remove(tool);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  if (selectedTools.isNotEmpty)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () {
+                          setState(() => aiStage = 3);
+                        },
+                        child: const Text("Proceed to Providers ➔", style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    )
+                ],
+              ),
+            ),
+          ],
+          Container(
+            height: 250,
+            color: Colors.white,
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(12),
+              itemCount: chatMessages.length,
+              itemBuilder: (context, index) {
+                final msg = chatMessages[index];
+                final isUser = msg["role"] == "user";
+                return Align(
+                  alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isUser ? Colors.green.shade600 : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      msg["text"] ?? "",
+                      textAlign: isUser ? TextAlign.right : TextAlign.left,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isUser ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(8),
+            color: Colors.grey.shade50,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _chatController,
+                    style: const TextStyle(fontSize: 13),
+                    decoration: const InputDecoration(
+                      hintText: "Ask about seeds, soil, or planning...",
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    onSubmitted: _processCustomUserQuery,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.send_rounded, color: Colors.green),
+                  onPressed: () => _processCustomUserQuery(_chatController.text),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -712,7 +1264,19 @@ class _HomeHubTabState extends State<HomeHubTab> {
           if (item['imageUrl'] != null && item['imageUrl'].toString().isNotEmpty)
             ClipRRect(
               borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
-              child: Image.network(
+              child: item['imageUrl'].toString().startsWith('/') || item['imageUrl'].toString().contains(':/')
+                  ? Image.file(
+                File(item['imageUrl']),
+                height: 140,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 140,
+                  color: Colors.grey[200],
+                  child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+                ),
+              )
+                  : Image.network(
                 item['imageUrl'],
                 height: 140,
                 width: double.infinity,
@@ -750,551 +1314,76 @@ class _HomeHubTabState extends State<HomeHubTab> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                 decoration: BoxDecoration(
-                                  color: Colors.green.shade50,
+                                  color: statusBg,
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  item['type'] ?? 'General Purpose',
-                                  style: TextStyle(color: Colors.green.shade800, fontSize: 10, fontWeight: FontWeight.bold),
+                                  assetStatus,
+                                  style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600),
                                 ),
                               ),
-                              if (item['ownerName'] != null) ...[
-                                const SizedBox(width: 6),
-                                Text(
-                                  "👤 ${item['ownerName']}",
-                                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
-                                )
-                              ]
                             ],
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                        decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(20)),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircleAvatar(backgroundColor: statusColor, radius: 3.5),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text(
-                                assetStatus,
-                                style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            rateDisplay,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            "${item['distance'] ?? '2.0'} km away",
+                            style: TextStyle(fontSize: 11, color: Colors.black.withOpacity(0.48)),
+                          ),
+                        ],
                       ),
-                    )
+                    ),
                   ],
                 ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 10),
-                  child: Divider(height: 1, color: Color(0xFFF5F5F5)),
-                ),
+                if (item['capacity'] != null && item['capacity'].toString().trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    "Specs: ${item['capacity']}",
+                    style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w500),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Divider(color: Colors.grey.shade100, height: 1),
+                const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.bolt, size: 16, color: Colors.amber.shade700),
+                        const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
                         const SizedBox(width: 4),
                         Text(
-                          "${item['hp'] ?? '45 HP'} Capability",
-                          style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w500),
+                          "${item['rating'] ?? '5.0'}",
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          "(${item['reviews'] ?? '0'} reviews)",
+                          style: TextStyle(fontSize: 11, color: Colors.black.withOpacity(0.48)),
                         ),
                       ],
                     ),
                     Text(
-                      rateDisplay,
-                      style: const TextStyle(color: Color(0xFF1B5E20), fontSize: 14, fontWeight: FontWeight.w800),
+                      "Owner: ${item['ownerName'] ?? 'Verified Partner'}",
+                      style: TextStyle(fontSize: 11, color: Colors.black.withOpacity(0.48)),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          side: BorderSide(color: Colors.grey.shade300),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        icon: Icon(Icons.edit_note_rounded, size: 16, color: Colors.black.withOpacity(0.54)),
-                        label: const Text(
-                          "Edit Listing",
-                          style: TextStyle(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.bold),
-                        ),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text("Editing structural variables for: ${item['name']}")),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          side: BorderSide(color: Colors.red.shade100),
-                          backgroundColor: Colors.red.shade50.withOpacity(0.3),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        icon: Icon(Icons.pause_circle_outline_rounded, size: 16, color: Colors.red.shade700),
-                        label: Text("Pause Visibility", style: TextStyle(color: Colors.red.shade900, fontSize: 11, fontWeight: FontWeight.bold)),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text("Asset visibility status toggled offline for maintenance.")),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                )
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildDynamicChatConsole() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-          color: Colors.white, borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4)]
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(backgroundColor: Colors.green[100], radius: 14, child: const Icon(Icons.psychology, size: 16, color: Color(0xFF4CAF50))),
-                  const SizedBox(width: 8),
-                  const Text("FarmAI Engine", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
-                ],
-              ),
-              if (_isAiLoading)
-                const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4CAF50)),
-                ),
-            ],
-          ),
-          const Divider(height: 20),
-          Container(
-            height: 200,
-            decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(10),
-              itemCount: chatMessages.length,
-              itemBuilder: (context, index) {
-                bool isAi = chatMessages[index]["role"] == "ai";
-                return Align(
-                  alignment: isAi ? Alignment.centerLeft : Alignment.centerRight,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.all(10),
-                    constraints: const BoxConstraints(maxWidth: 240),
-                    decoration: BoxDecoration(
-                      color: isAi ? Colors.green[50] : Colors.green[700],
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      chatMessages[index]["text"]!,
-                      style: TextStyle(color: isAi ? Colors.black87 : Colors.white, fontSize: 12),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (aiStage == 2) ...[
-            Container(
-              padding: const EdgeInsets.all(10),
-              color: Colors.green[50],
-              child: Text(
-                "📋 Dynamic Machinery Bundle for: $selectedCrop",
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF2E7D32)),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(8)),
-              child: Column(
-                children: (cropBundles[selectedCrop] ?? [
-                  'Utility Tractor (50 HP)',
-                  'Multi-Crop Disc Harrow',
-                  'Heavy Duty Haulage Trailer'
-                ]).map((tool) {
-                  bool checked = selectedTools.contains(tool);
-                  return CheckboxListTile(
-                    title: Text(tool, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-                    value: checked,
-                    dense: true,
-                    activeColor: Colors.green[700],
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: (val) => setState(() {
-                      val! ? selectedTools.add(tool) : selectedTools.remove(tool);
-                    }),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700], minimumSize: const Size(double.infinity, 36)),
-              onPressed: selectedTools.isEmpty ? null : () => setState(() {
-                aiStage = 3;
-                chatMessages.add({"role": "ai", "text": "Analyzing coordinates network... Found premium matches nearby. Choose your logistics contractor:"});
-              }),
-              child: const Text("Match Local Equipment Providers", style: TextStyle(color: Colors.white, fontSize: 12)),
-            )
-          ] else if (aiStage == 3) ...[
-            ...providersList.map((prov) {
-              return Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(side: BorderSide(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(12)),
-                child: ListTile(
-                  title: Text(prov['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                  subtitle: Text("${prov['distance']} km • ⭐ ${prov['rating']}"),
-                  trailing: Text("₹${prov['rate']}/day", style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold, fontSize: 12)),
-                  onTap: () => setState(() {
-                    selectedProvider = prov;
-                    aiStage = 4;
-                    chatMessages.add({"role": "ai", "text": "Contract compiled! Confirming deployment path with ${prov['name']}."});
-                  }),
-                ),
-              );
-            }),
-          ] else if (aiStage == 4) ...[
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
-              child: Text("📝 Contract: ${selectedTools.join(', ')} via ${selectedProvider!['name']}. Total calculated term: 3 Days.", style: const TextStyle(fontSize: 11)),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
-                    onPressed: () {
-                      widget.onBookingCreated({
-                        'id': 'B${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
-                        'title': selectedTools.first,
-                        'role': 'renting',
-                        'status': 'PENDING',
-                        'meta': 'Owner: ${selectedProvider!['name']}',
-                        'dates': 'May 22 → May 25',
-                        'cost': selectedProvider!['rate'] * 3,
-                        'paymentMethod': 'UPI',
-                        'timestamp': DateTime(2026, 5, 21),
-                        'route': 'Transit Path Engaged: Pass through Highway 12 corridor to bypass inner-village load weight parameters.',
-                      });
-                      setState(() => aiStage = 5);
-                    },
-                    child: const Text("Confirm & Dispatch", style: TextStyle(color: Colors.white, fontSize: 12)),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                    onPressed: () => setState(() {
-                      aiStage = 1; selectedTools.clear(); selectedCrop = ""; selectedProvider = null;
-                    }),
-                    child: const Text("Reset", style: TextStyle(color: Colors.grey))
-                )
-              ],
-            )
-          ] else if (aiStage == 5) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 4.0),
-              child: Text("🚀 Request injected into Deployment Pipeline ledger successfully!", style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold)),
-            ),
-            TextButton(
-              onPressed: () => setState(() {
-                aiStage = 1; selectedTools.clear(); selectedCrop = ""; selectedProvider = null;
-                chatMessages.add({"role": "ai", "text": "System cleared. Ask me another farming question!"});
-              }),
-              child: const Text("Run Another Field Search Sequence", style: TextStyle(fontSize: 11)),
-            )
-          ],
-          const Divider(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(24)),
-                  child: TextField(
-                    controller: _chatController,
-                    onSubmitted: _processCustomUserQuery,
-                    style: const TextStyle(fontSize: 13),
-                    decoration: const InputDecoration(
-                      hintText: "Ask about crops, soil, pests, or tractors...",
-                      border: InputBorder.none,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              CircleAvatar(
-                backgroundColor: Colors.green[700],
-                radius: 18,
-                child: IconButton(
-                  padding: EdgeInsets.zero,
-                  icon: const Icon(Icons.arrow_upward, color: Colors.white, size: 18),
-                  onPressed: () => _processCustomUserQuery(_chatController.text),
-                ),
-              )
-            ],
-          )
-        ],
-      ),
-    );
-  }
-
-  void _showAddEquipmentDialog(BuildContext context) {
-    String name = "";
-    String type = "Tillage";
-    String hpValue = "50";
-    String status = "Idle in Garage";
-    int rate = 1500;
-    String billingUnit = "/day";
-    String ownerName = "";
-    File? selectedLocalImageFile;
-
-    showDialog(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Row(
-            children: [
-              Icon(Icons.playlist_add_rounded, color: Colors.green.shade700),
-              const SizedBox(width: 8),
-              const Text("Register Fleet Asset", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: GestureDetector(
-                    onTap: () async {
-                      final XFile? pickedMedia = await ImagePicker().pickImage(
-                        source: ImageSource.gallery,
-                        imageQuality: 70,
-                      );
-                      if (pickedMedia != null) {
-                        setModalState(() {
-                          selectedLocalImageFile = File(pickedMedia.path);
-                        });
-                      }
-                    },
-                    child: Container(
-                      height: 120,
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
-                      ),
-                      child: selectedLocalImageFile != null
-                          ? ClipRRect(
-                        borderRadius: BorderRadius.circular(11),
-                        child: Image.file(selectedLocalImageFile!, fit: BoxFit.cover),
-                      )
-                          : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.add_a_photo_outlined, size: 28, color: Colors.green.shade700),
-                          const SizedBox(height: 6),
-                          const Text("Add Machine Photo", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: "Machine Model Title",
-                    hintText: "e.g., John Deere 5050E",
-                    prefixIcon: Icon(Icons.label_outline_rounded, size: 20),
-                  ),
-                  onChanged: (v) => name = v,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: "Owner/Lender Full Name",
-                    hintText: "e.g., Ramesh Kumar",
-                    prefixIcon: Icon(Icons.person_outline_rounded, size: 20),
-                  ),
-                  onChanged: (v) => ownerName = v,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: type,
-                  decoration: const InputDecoration(
-                    labelText: "Category Sub-Tag",
-                    prefixIcon: Icon(Icons.category_outlined, size: 20),
-                  ),
-                  items: ['Tillage', 'Sowing', 'Harvesting', 'Protection']
-                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                      .toList(),
-                  onChanged: (v) => type = v!,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: status,
-                  decoration: const InputDecoration(
-                    labelText: "Initial Availability Status",
-                    prefixIcon: Icon(Icons.signal_cellular_alt_rounded, size: 20),
-                  ),
-                  items: ['Idle in Garage', 'Active Lease', 'Awaiting Delivery']
-                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                      .toList(),
-                  onChanged: (v) => status = v!,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: "Performance Capability (HP)",
-                    hintText: "e.g., 50",
-                    prefixIcon: Icon(Icons.bolt, size: 20),
-                  ),
-                  keyboardType: TextInputType.number,
-                  onChanged: (v) => hpValue = v,
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: TextField(
-                        decoration: const InputDecoration(
-                          labelText: "Rental Rate (₹)",
-                          prefixIcon: Icon(Icons.currency_rupee_rounded, size: 20),
-                        ),
-                        keyboardType: TextInputType.number,
-                        onChanged: (v) => rate = int.tryParse(v) ?? 1500,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      flex: 2,
-                      child: DropdownButtonFormField<String>(
-                        value: billingUnit,
-                        decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 4)),
-                        items: const [
-                          DropdownMenuItem(value: '/day', child: Text("/day")),
-                          DropdownMenuItem(value: '/hr', child: Text("/hr")),
-                        ],
-                        onChanged: (v) => setModalState(() => billingUnit = v!),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: Text("Cancel", style: TextStyle(color: Colors.grey.shade600)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade700,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: () async {
-                if (name.trim().isNotEmpty) {
-                  try {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Syncing equipment to cloud...")),
-                    );
-
-                    String uploadedImageUrl = "";
-                    if (selectedLocalImageFile != null) {
-                      String fileIdHash = "${DateTime.now().millisecondsSinceEpoch}.jpg";
-                      Reference storageBucketPathRef = FirebaseStorage.instance.ref().child('machinery_fleet/$fileIdHash');
-
-                      UploadTask assetUploadTask = storageBucketPathRef.putFile(selectedLocalImageFile!);
-                      TaskSnapshot completedTaskSnapshot = await assetUploadTask;
-                      uploadedImageUrl = await completedTaskSnapshot.ref.getDownloadURL();
-                    }
-
-                    String calibratedHp = hpValue.trim().toUpperCase().contains('HP')
-                        ? hpValue.trim().toUpperCase()
-                        : '${hpValue.trim()} HP';
-                    String compiledRateString = '₹$rate$billingUnit';
-
-                    await FirebaseFirestore.instance.collection('fleet').add({
-                      'name': name.trim(),
-                      'ownerName': ownerName.trim().isEmpty ? 'Private Owner' : ownerName.trim(),
-                      'type': type,
-                      'status': status,
-                      'hp': calibratedHp,
-                      'rate': compiledRateString,
-                      'imageUrl': uploadedImageUrl,
-                      'distance': 4.5,
-                      'created_at': Timestamp.now(),
-                    });
-
-                    widget.onEquipmentAdded({
-                      'name': name.trim(),
-                      'ownerName': ownerName.trim().isEmpty ? 'Private Owner' : ownerName.trim(),
-                      'type': type,
-                      'status': status,
-                      'hp': calibratedHp,
-                      'rate': compiledRateString,
-                      'imageUrl': uploadedImageUrl,
-                      'distance': 4.5,
-                    });
-
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Equipment successfully listed in database!")),
-                      );
-                      Navigator.pop(c);
-                    }
-                  } catch (error) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text("Cloud pipeline failed: $error")),
-                      );
-                    }
-                  }
-                }
-              },
-              child: const Text("Save Listing", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
       ),
     );
   }

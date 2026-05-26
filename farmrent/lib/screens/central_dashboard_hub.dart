@@ -17,14 +17,41 @@ class _CentralDashboardHubState extends State<CentralDashboardHub> {
 
   // Global shared state to simulate live updates across tabs
   List<Map<String, dynamic>> systemBookings = [
+    // 🆕 NEW PENDING TEST ELEMENT 1: (Triggers Accept/Deny with Customer Profile context)
+    {
+      'id': 'B005',
+      'title': 'John Deere Tractor 5050E',
+      'role': 'renting', // Inbound request to rent from you
+      'status': 'PENDING', // 👈 Triggers the pending card logic
+      'cost': 4500.0,
+      'meta': 'Requested by: Rajesh Kumar • Duration: 3 Days',
+      'renterRating': '4.8',
+      'renterReview': 'Always returns machinery clean, on-time, and with a full tank.',
+      'paymentMethod': 'UPI',
+      'timestamp': DateTime(2026, 5, 23),
+    },
+    // 🆕 NEW PENDING TEST ELEMENT 2: (Triggers Accept/Deny with Customer Profile context)
+    {
+      'id': 'B006',
+      'title': 'Mahindra Cultivator 11-Tyne',
+      'role': 'renting',
+      'status': 'PENDING', // 👈 Triggers the pending card logic
+      'cost': 1200.0,
+      'meta': 'Requested by: Suresh Singh • Duration: 1 Week',
+      'renterRating': '4.5',
+      'renterReview': 'Reliable local operator, handles heavy tools with care.',
+      'paymentMethod': 'Cash on Delivery',
+      'timestamp': DateTime(2026, 5, 24),
+    },
+    // Your standard historical booking elements:
     {
       'id': 'B001',
       'title': 'Mahindra Tractor',
-      'role': 'renting', // Hired by farmer
+      'role': 'renting',
       'status': 'ACTIVE',
       'meta': 'Owner: Ramesh G.',
       'dates': 'Apr 15 → Apr 18',
-      'cost': 2400,
+      'cost': 2400.0,
       'paymentMethod': 'UPI',
       'timestamp': DateTime(2026, 4, 16),
       'route': 'Take State Highway 12 directly to parcel lines to avoid ongoing canal maintenance blockages.',
@@ -35,7 +62,7 @@ class _CentralDashboardHubState extends State<CentralDashboardHub> {
       'role': 'renting',
       'status': 'COMPLETED',
       'meta': 'By Suresh P. • Apr 10',
-      'cost': 1800,
+      'cost': 1800.0,
       'paymentMethod': 'UPI',
       'timestamp': DateTime(2026, 4, 10),
       'rated': true,
@@ -46,7 +73,7 @@ class _CentralDashboardHubState extends State<CentralDashboardHub> {
       'role': 'renting',
       'status': 'COMPLETED',
       'meta': 'By Venkatesh • Apr 05',
-      'cost': 4200,
+      'cost': 4200.0,
       'paymentMethod': 'Cash',
       'timestamp': DateTime(2026, 4, 5),
       'rated': false,
@@ -54,11 +81,11 @@ class _CentralDashboardHubState extends State<CentralDashboardHub> {
     {
       'id': 'B004',
       'title': 'Rotavator Heavy v2',
-      'role': 'lending', // Owned fleet item out on lease
+      'role': 'lending',
       'status': 'ACTIVE',
       'meta': 'Tenant: Gowda Farms',
       'dates': 'May 18 → May 22',
-      'cost': 3600,
+      'cost': 3600.0,
       'paymentMethod': 'Google Pay',
       'timestamp': DateTime(2026, 5, 19),
       'route': 'Pass through North checkpoint corridor for optimal weight transit verification.',
@@ -91,18 +118,27 @@ class _CentralDashboardHubState extends State<CentralDashboardHub> {
 
   @override
   Widget build(BuildContext context) {
+    // 🛡️ SAFEST STATE GUARDS: Forces clean runtime casting so child tabs don't throw dynamic subtype mismatch errors.
+    final List<Map<String, dynamic>> safeBookings = (systemBookings)
+        .map<Map<String, dynamic>>((item) => Map<String, dynamic>.from(item))
+        .toList();
+
+    final List<Map<String, dynamic>> safeFleet = (lenderFleet)
+        .map<Map<String, dynamic>>((item) => Map<String, dynamic>.from(item))
+        .toList();
+
     final List<Widget> tabs = [
       HomeHubTab(
         isLenderMode: isLenderMode,
         onRoleChanged: toggleRole,
-        bookings: systemBookings,
-        fleet: lenderFleet,
+        bookings: safeBookings,
+        fleet: safeFleet,
         onBookingCreated: addBooking,
         onEquipmentAdded: addEquipment,
       ),
-      BookingsTab(bookings: systemBookings, onBookingsChanged: () => setState(() {})),
-      PaymentsTab(bookings: systemBookings),
-      ProfileTab(fleetCount: lenderFleet.length),
+      BookingsTab(bookings: safeBookings, onBookingsChanged: () => setState(() {})),
+      PaymentsTab(bookings: safeBookings),
+      ProfileTab(fleetCount: safeFleet.length),
     ];
 
     return Scaffold(
@@ -126,7 +162,6 @@ class _CentralDashboardHubState extends State<CentralDashboardHub> {
   }
 }
 
-// Global reusable layout helper for consistent UI headers across all tabs
 // Reusable layout helper for consistent UI headers across all tabs
 Widget buildGlobalSearchHeader({String title = "FarmRent Hub", Widget? bottomChild}) {
   return Container(

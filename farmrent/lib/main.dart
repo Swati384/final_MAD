@@ -1,26 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
 import 'screens/login.dart';
+import 'screens/auth_service.dart';
+import 'screens/central_dashboard_hub.dart';
 
-// Safe check: We attempt to dynamically use the generated options if present,
-// otherwise we provide a dummy fallback variable to prevent compiler errors.
 FirebaseOptions? get safeFirebaseOptions {
   try {
-    // This allows the app to compile cleanly even if the file isn't created yet
     return const FirebaseOptions(
-      apiKey: "AIzaSyDummyKeyForCompilationPurposesOnly",
-      appId: "1:1234567890:web:abcdef1234567890",
-      messagingSenderId: "1234567890",
-      projectId: "farmrent-mock-id",
-      storageBucket: "farmrent-mock-id.appspot.com",
+      // 🔑 Your real web production key from the console snippet!
+      apiKey: "AIzaSyB0UCwbesmvi8sLiXG_7cwIcQquVIWocmg",
+
+      // 📱 Keeping your Android App ID link stable
+      appId: "1:836811272478:android:5fe318dacade8d371a990f",
+      messagingSenderId: "836811272478",
+      projectId: "farmrent-fe8af",
+      storageBucket: "farmrent-fe8af.firebasestorage.app", // Updated to matches your exact snippet address
     );
   } catch (_) {
     return null;
   }
 }
-
 void main() async {
-  // Ensure Flutter framework components are fully attached before connecting to native plugins
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
@@ -35,7 +36,6 @@ void main() async {
     debugPrint("⚠️ Note: Firebase running in local fallback mode: $e");
   }
 
-  // Load the app smoothly once security and data configurations are ready
   runApp(const MyApp());
 }
 
@@ -44,16 +44,27 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'FarmRent',
-      theme: ThemeData(
-        primaryColor: Colors.green,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
-        useMaterial3: true,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthService()),
+      ],
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'FarmRent',
+        theme: ThemeData(
+          primaryColor: Colors.green,
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+          useMaterial3: true,
+        ),
+        home: Consumer<AuthService>(
+          builder: (context, auth, _) {
+            if (auth.user != null) {
+              return const CentralDashboardHub();
+            }
+            return const LoginScreen();
+          },
+        ),
       ),
-      // Starts the app cleanly on the Login Screen
-      home: const LoginScreen(),
     );
   }
-}
+} // 👈 Added this missing bracket to completely close out the MyApp class!
