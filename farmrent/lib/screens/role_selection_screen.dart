@@ -16,7 +16,7 @@ class RoleSelectionScreen extends StatelessWidget {
             const SizedBox(height: 16),
             const Text(
                 "Welcome to FarmRent",
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blackDE)
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)
             ),
             const SizedBox(height: 8),
             const Padding(

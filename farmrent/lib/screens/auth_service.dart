@@ -37,7 +37,11 @@ class AuthService extends ChangeNotifier {
           'fullName': fullName,
           'email': email,
           'phone': phone,
-          'walletBalance': 0.0, // This sets up the base for your payment testing!
+          'address': 'Not set',
+          'profileUrl': null,
+          'borrowerRating': 5.0,
+          'lenderRating': 5.0,
+          'walletBalance': 0.0,
           'createdAt': FieldValue.serverTimestamp(),
         });
       }

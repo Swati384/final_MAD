@@ -4,7 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
+import 'equipment_detail_screen.dart';
 
 // Connects directly to the backend file you created
 import 'fleet_backend_service.dart';
@@ -165,41 +167,181 @@ class _HomeHubTabState extends State<HomeHubTab> {
 
     try {
       final model = GenerativeModel(
-        model: 'gemini-2.5-flash',
-        apiKey: 'AIzaSyDQs0C2qHIuoohZI_ikXn0yfe7DEQdzyN8',
+        model: 'gemini-1.5-flash',
+        apiKey: 'AIzaSyDQs0C2qHIuoohZI_ikXn0yfe7DEQdzyN8', // Ensure this is your valid key
       );
 
-      final contextualPrompt =
+      final contextualPrompt = 
           "SYSTEM INSTRUCTIONS:\n"
-          "You are the intelligent, conversational Gemini AI Assistant built into the FarmRent app. "
-          "Your tone is professional, supportive, witty, and deeply analytical—exactly like an expert agronomy peer.\n"
-          "CRITICAL SCOPE RULE: You can answer ANY question as long as it relates to agriculture, soil biology, weather patterns, crop diseases, fertilizer calculations, tractor specifications, or machinery operations. "
-          "However, if the user asks about anything completely unrelated (like coding, software engineering, movies, pop culture, non-farming history, or cooking recipes), you must refuse to answer. Respond exactly with this phrase: "
+          "You are the 'FarmRent Agri-Expert', a highly knowledgeable and supportive AI specialized in Indian agriculture. "
+          "CONTEXT:\n"
+          "- Current Weather: $_currentTemperature, $_currentConditionText\n"
+          "- Recommended Crops: $_recommendedCrop\n"
+          "GOAL:\n"
+          "Provide expert advice on crop planning, soil health, machinery selection, and pest control. "
+          "If the user's query is unrelated to farming or equipment rentals, politely state: "
           "\"I am sorry, but I can only answer questions related to agriculture, crop planning, and equipment rentals.\"\n\n"
-          "USER INPUT:\n$rawInput";
+          "USER INPUT: $rawInput";
 
       final response = await model.generateContent([Content.text(contextualPrompt)]);
+      final aiText = response.text ?? "I am having trouble processing that right now. Please try again.";
 
       setState(() {
-        chatMessages.add({"role": "ai", "text": response.text ?? "Error generating advisory sequence."});
+        chatMessages.add({"role": "ai", "text": aiText});
         _isAiLoading = false;
       });
     } catch (e) {
-      debugPrint("=================================================");
-      debugPrint("🚨 DETAILED SYSTEM FAILURE TRACE: $e");
-      debugPrint("=================================================");
-
-      _respondAsAI("Connection error: Unable to compute model pipeline parameters.");
-      setState(() => _isAiLoading = false);
+      debugPrint("🚨 Gemini Error: $e");
+      setState(() {
+        chatMessages.add({
+          "role": "ai",
+          "text": "I'm sorry, I'm experiencing a technical glitch. Please check your connection."
+        });
+        _isAiLoading = false;
+      });
     }
     _scrollToBottom();
   }
 
-  void _respondAsAI(String text) {
-    setState(() {
-      chatMessages.add({"role": "ai", "text": text});
-    });
-    _scrollToBottom();
+  Widget _buildChatSection() {
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            controller: _scrollController,
+            padding: const EdgeInsets.all(16),
+            itemCount: chatMessages.length + (_isAiLoading ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index == chatMessages.length) {
+                return _buildAiTypingIndicator();
+              }
+              final msg = chatMessages[index];
+              return _buildChatBubble(msg['role'] == 'user', msg['text']!);
+            },
+          ),
+        ),
+        if (chatMessages.length < 3) _buildSuggestionChips(),
+        _buildChatInput(),
+      ],
+    );
+  }
+
+  Widget _buildChatBubble(bool isUser, String text) {
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isUser ? Colors.green[700] : Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isUser ? 16 : 0),
+            bottomRight: Radius.circular(isUser ? 0 : 16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            )
+          ],
+        ),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: isUser ? Colors.white : Colors.black87,
+            fontSize: 14,
+            height: 1.4,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAiTypingIndicator() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.green[700]),
+            ),
+            const SizedBox(width: 10),
+            const Text("Expert is thinking...", style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuggestionChips() {
+    final suggestions = [
+      "What should I grow today?",
+      "Need a tractor for Ragi",
+      "Explain soil aeration",
+    ];
+    return SizedBox(
+      height: 40,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: suggestions.length,
+        itemBuilder: (context, index) => Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: ActionChip(
+            label: Text(suggestions[index], style: const TextStyle(fontSize: 12)),
+            backgroundColor: Colors.white,
+            side: BorderSide(color: Colors.green.shade200),
+            onPressed: () => _processCustomUserQuery(suggestions[index]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChatInput() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _chatController,
+              decoration: InputDecoration(
+                hintText: "Ask your Agri-Expert...",
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                filled: true,
+                fillColor: Colors.grey[100],
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              ),
+              onSubmitted: _processCustomUserQuery,
+            ),
+          ),
+          const SizedBox(width: 8),
+          CircleAvatar(
+            backgroundColor: Colors.green[700],
+            child: IconButton(
+              icon: const Icon(Icons.send, color: Colors.white),
+              onPressed: () => _processCustomUserQuery(_chatController.text),
+            ),
+          )
+        ],
+      ),
+    );
   }
 
   void _scrollToBottom() {
@@ -325,16 +467,42 @@ class _HomeHubTabState extends State<HomeHubTab> {
 
   List<Map<String, dynamic>> _getFilteredFleet() {
     return widget.fleet.where((item) {
-      final nameMatches = (item['name'] ?? '').toString().toLowerCase().contains(_searchString.toLowerCase());
-      final ownerMatches = (item['ownerName'] ?? '').toString().toLowerCase().contains(_searchString.toLowerCase());
+      // Role filtering: 
+      // Lender sees only their own equipment (simulated by 'Me (Lender)') and specific demo items tagged for them
+      if (widget.isLenderMode) {
+        final isOwner = item['ownerName'] == "Me (Lender)"; 
+        if (!isOwner) return false;
+      }
+      
+      // Renter sees everything (all providers + all demo data)
 
-      final rawRateString = (item['rate'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+      final searchLower = _searchString.toLowerCase().trim();
+      if (searchLower.isEmpty) return true;
+
+      final name = (item['name'] ?? '').toString().toLowerCase();
+      final category = (item['category'] ?? '').toString().toLowerCase();
+      final type = (item['type'] ?? '').toString().toLowerCase();
+      final description = (item['description'] ?? '').toString().toLowerCase();
+      final owner = (item['ownerName'] ?? '').toString().toLowerCase();
+
+      // "Google-like" fuzzy search: check if query is a substring of any field
+      // or if any word in the query matches any field
+      final searchWords = searchLower.split(' ');
+      bool matchesAnyWord = searchWords.any((word) =>
+          name.contains(word) ||
+          category.contains(word) ||
+          type.contains(word) ||
+          description.contains(word) ||
+          owner.contains(word));
+
+      return matchesAnyWord;
+    }).where((item) {
+      // Secondary logic filters (Price/Distance)
+      final rawRateString = (item['ratePerDay'] ?? item['rate'] ?? '1200').toString().replaceAll(RegExp(r'[^0-9]'), '');
       final parsedRate = double.tryParse(rawRateString) ?? 1200.0;
       final distanceValue = double.tryParse((item['distance'] ?? '2.0').toString()) ?? 2.0;
 
-      return (nameMatches || ownerMatches) &&
-          (parsedRate <= _maxPriceFilter) &&
-          (distanceValue <= _maxDistanceFilter);
+      return (parsedRate <= _maxPriceFilter) && (distanceValue <= _maxDistanceFilter);
     }).toList();
   }
 
@@ -346,6 +514,8 @@ class _HomeHubTabState extends State<HomeHubTab> {
       builder: (BuildContext context) {
         File? selectedImageFile;
         String equipmentNameInput = "";
+        String equipmentAgeInput = "1 Year";
+        String equipmentDescriptionInput = "";
         String selectedCategory = 'Tillage';
         String selectedEquipmentType = 'Rotavator';
         String rentalRate = "1200";
@@ -499,6 +669,31 @@ class _HomeHubTabState extends State<HomeHubTab> {
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.precision_manufacturing_outlined, size: 20),
                         hintText: "Enter Equipment Name / Model (e.g., Mahindra Yuvo 575)",
+                        hintStyle: TextStyle(color: Colors.black38),
+                        border: UnderlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Equipment Age Text Field
+                    TextField(
+                      onChanged: (val) => equipmentAgeInput = val,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.history_toggle_off_rounded, size: 20),
+                        hintText: "Vehicle Age (e.g., 2 Years)",
+                        hintStyle: TextStyle(color: Colors.black38),
+                        border: UnderlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Equipment Description Text Field
+                    TextField(
+                      onChanged: (val) => equipmentDescriptionInput = val,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.description_outlined, size: 20),
+                        hintText: "Brief Description of Machinery State",
                         hintStyle: TextStyle(color: Colors.black38),
                         border: UnderlineInputBorder(),
                       ),
@@ -666,6 +861,10 @@ class _HomeHubTabState extends State<HomeHubTab> {
                               return;
                             }
 
+                            // Capture context for safe usage across async gaps
+                            final scaffoldMessenger = ScaffoldMessenger.of(context);
+                            final navigator = Navigator.of(context);
+
                             // Pack contextual fields securely to dictionary map array schemas
                             Map<String, String> specsPayload = {
                               if (selectedEquipmentType.contains('Tractor') || selectedEquipmentType.contains('Tiller')) ...{
@@ -692,6 +891,8 @@ class _HomeHubTabState extends State<HomeHubTab> {
                                 ratePerDay: parsedRate,
                                 imageFile: selectedImageFile,
                                 preparedSpecs: specsPayload,
+                                age: equipmentAgeInput,
+                                description: equipmentDescriptionInput,
                               );
 
                               // Build local representation map matching user grid schema targets
@@ -704,14 +905,19 @@ class _HomeHubTabState extends State<HomeHubTab> {
                                 "ownerName": "Me (Lender)",
                                 "specs": specsPayload,
                                 "imagePath": selectedImageFile?.path ?? "",
+                                "age": equipmentAgeInput,
+                                "description": equipmentDescriptionInput,
                               };
 
                               // Pass up to parent component stream state loops to update UI instantly
                               widget.onEquipmentAdded(newAssetData);
 
-                              Navigator.pop(context);
+                              navigator.pop();
+                              scaffoldMessenger.showSnackBar(
+                                const SnackBar(content: Text("Asset deployed successfully!"), backgroundColor: Colors.green),
+                              );
                             } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              scaffoldMessenger.showSnackBar(
                                 SnackBar(backgroundColor: Colors.red.shade800, content: Text("Database Pipeline Failure: $e")),
                               );
                             }
@@ -729,11 +935,103 @@ class _HomeHubTabState extends State<HomeHubTab> {
       },
     );
   }
+  // 📞 Function to trigger an immediate phone dialer launch
+  Future<void> _makePhoneCallToOwner(String phoneNumber) async {
+    final Uri launchUri = Uri(
+      scheme: 'tel',
+      path: phoneNumber.replaceAll(RegExp(r'[^0-9+]'), ''),
+    );
+
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Could not launch phone dialer application.")),
+        );
+      }
+    }
+  }
+
+  // 💸 Function to route payment execution to Paytm using UPI Deep-Linking Intent strings
+  Future<void> _payViaPaytmIntent({required String upiId, required String payeeName, required double amount}) async {
+    final String upiUrlString =
+        "upi://pay?pa=$upiId&pn=${Uri.encodeComponent(payeeName)}&am=${amount.toStringAsFixed(2)}&cu=INR&tn=FarmRent%20Pro%20Equipment%20Booking";
+
+    final Uri paytmUri = Uri.parse(upiUrlString);
+
+    try {
+      if (await canLaunchUrl(paytmUri)) {
+        await launchUrl(
+          paytmUri,
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        throw "No standard app handler detected on device for handling raw upi intent links.";
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red.shade900,
+            content: const Text("Paytm/UPI app not found. Please install Paytm to complete checkout."),
+          ),
+        );
+      }
+    }
+  }
+
+  void _deleteEquipment(String? docId) async {
+    if (docId == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Remove Equipment?"),
+        content: const Text("This will permanently remove the machinery from your garage and the platform. This action cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("CANCEL")),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("REMOVE"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await FleetBackendService().deleteAsset(docId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Equipment removed successfully.")),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Failed to remove equipment: $e"), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
+  }
+
+  void _navigateToDetails(Map<String, dynamic> item) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EquipmentDetailScreen(equipment: item),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     double totalLenderEarnings = widget.bookings
-        .where((b) => b['role'] == 'lending' && b['status'] != 'PENDING')
-        .fold(0.0, (sum, item) => sum + item['cost']);
+        .where((b) => b['role'] == 'lending' && b['status'] != 'PENDING' && b['status'] != 'DENIED')
+        .fold(0.0, (sum, item) => sum + (item['cost'] ?? 0.0));
 
     final filteredFleetList = _getFilteredFleet();
 
@@ -847,10 +1145,21 @@ class _HomeHubTabState extends State<HomeHubTab> {
                           onChanged: (val) {
                             setState(() => _searchString = val);
                           },
-                          decoration: const InputDecoration(
-                            hintText: "Search by model name or provider...",
+                          decoration: InputDecoration(
+                            hintText: "Search machines, models, categories...",
                             border: InputBorder.none,
-                            hintStyle: TextStyle(fontSize: 13, color: Colors.black38),
+                            hintStyle: const TextStyle(fontSize: 13, color: Colors.black38),
+                            suffixIcon: _searchString.isNotEmpty 
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 18), 
+                                  onPressed: () {
+                                    setState(() {
+                                      _searchQueryController.clear();
+                                      _searchString = "";
+                                    });
+                                  }
+                                ) 
+                              : null,
                           ),
                         ),
                       ),
@@ -1041,6 +1350,10 @@ class _HomeHubTabState extends State<HomeHubTab> {
                 const Text("AI Field Assistant", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                 const SizedBox(height: 10),
                 _buildDynamicChatConsole(),
+                const SizedBox(height: 24),
+                const Text("Available Machinery", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                const SizedBox(height: 10),
+                _buildGarageSection(filteredFleetList),
               ],
               if (widget.isLenderMode) ...[
                 _buildGarageSection(filteredFleetList),
@@ -1131,11 +1444,87 @@ class _HomeHubTabState extends State<HomeHubTab> {
                       alignment: Alignment.centerRight,
                       child: TextButton(
                         onPressed: () {
-                          setState(() => aiStage = 3);
+                          setState(() {
+                            aiStage = 3;
+                            selectedProvider = providersList.first;
+                          });
                         },
                         child: const Text("Proceed to Providers ➔", style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     )
+                ],
+              ),
+            ),
+          ],
+          if (aiStage == 3 && selectedProvider != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              color: Colors.blue.shade50,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Selected Provider: ${selectedProvider!['name']}",
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      // 📞 CALL BUTTON
+                      IconButton(
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.orange.shade800,
+                          padding: const EdgeInsets.all(12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.phone_forwarded_rounded, color: Colors.white),
+                        onPressed: () => _makePhoneCallToOwner("+919876543210"),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // 💸 PAYTM PAYMENT BUTTON
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF002E6E),
+                            minimumSize: const Size(double.infinity, 48),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          icon: const Icon(Icons.account_balance_wallet_rounded, color: Colors.white, size: 18),
+                          label: const Text(
+                            "Pay ₹1400 via Paytm",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: () {
+                            // 🚀 Triggering real booking creation in Firestore
+                            widget.onBookingCreated({
+                              'title': selectedProvider!['name'] ?? "Machinery Rental",
+                              'role': 'renting',
+                              'status': 'PENDING',
+                              'cost': 1400.0,
+                              'renterName': 'Self', // In real app, get from AuthService
+                              'lenderName': selectedProvider!['name'] ?? "Ganesh Rentals",
+                              'legalNumber': 'KA-01-AX-9999', // Simulated
+                              'vehicleAge': '2 Years',
+                              'lastServiceDate': 'May 01, 2026',
+                              'lastRentedDate': 'May 20, 2026',
+                              'durationDays': 1,
+                              'dates': 'Jun 01',
+                              'paymentMethod': 'Paytm',
+                            });
+
+                            _payViaPaytmIntent(
+                              upiId: "ganeshrentals@paytm",
+                              payeeName: selectedProvider!['name'] ?? "Ganesh Rentals",
+                              amount: 1400.0,
+                            );
+
+                            setState(() => aiStage = 1); // Reset AI stage after booking
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1205,22 +1594,36 @@ class _HomeHubTabState extends State<HomeHubTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text("My Equipment Garage", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-            IconButton(
-              icon: const Icon(Icons.add_circle, color: Color(0xFF4CAF50), size: 28),
-              onPressed: () => _showAddEquipmentDialog(context),
-            )
-          ],
-        ),
-        const SizedBox(height: 10),
+        if (widget.isLenderMode) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text("My Equipment Garage", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+              IconButton(
+                icon: const Icon(Icons.add_circle, color: Color(0xFF4CAF50), size: 28),
+                onPressed: () => _showAddEquipmentDialog(context),
+              )
+            ],
+          ),
+          const SizedBox(height: 10),
+        ],
         filteredFleetList.isEmpty
-            ? const Center(
+            ? Center(
           child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 24.0),
-            child: Text("No machinery matches current search metrics.", style: TextStyle(color: Colors.black38, fontSize: 13)),
+            padding: const EdgeInsets.symmetric(vertical: 40.0),
+            child: Column(
+              children: [
+                Icon(Icons.search_off_rounded, size: 48, color: Colors.grey[300]),
+                const SizedBox(height: 12),
+                Text(
+                  _searchString.isEmpty 
+                    ? (widget.isLenderMode ? "No machinery available in your garage yet." : "No machinery available in the hub yet.")
+                    : "No matches found for '$_searchString'. Try a different term.", 
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.black38, fontSize: 13)
+                ),
+              ],
+            ),
           ),
         )
             : ListView.builder(
@@ -1236,154 +1639,140 @@ class _HomeHubTabState extends State<HomeHubTab> {
   }
 
   Widget _buildGarageItemCard(Map<String, dynamic> item) {
-    Color statusColor = Colors.grey.shade600;
-    Color statusBg = Colors.grey.shade100;
-    String assetStatus = item['status'] ?? 'Idle in Garage';
+    String rateDisplay = item['ratePerDay'] != null ? "₹${item['ratePerDay']}/day" : "₹1,200/day";
 
-    if (assetStatus.contains('Active Lease') || assetStatus.contains('Working')) {
-      statusColor = const Color(0xFF2E7D32);
-      statusBg = const Color(0xFFE8F5E9);
-    } else if (assetStatus.contains('Awaiting') || assetStatus.contains('Scheduled')) {
-      statusColor = const Color(0xFFE65100);
-      statusBg = const Color(0xFFFFF3E0);
-    }
-
-    String rateDisplay = item['rate'] != null ? item['rate'].toString() : "₹1,200/day";
-    if (!rateDisplay.contains('₹')) rateDisplay = "₹$rateDisplay/day";
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        side: BorderSide(color: Colors.grey.shade200, width: 1),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (item['imageUrl'] != null && item['imageUrl'].toString().isNotEmpty)
-            ClipRRect(
-              borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
-              child: item['imageUrl'].toString().startsWith('/') || item['imageUrl'].toString().contains(':/')
-                  ? Image.file(
-                File(item['imageUrl']),
-                height: 140,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
+    return GestureDetector(
+      onTap: widget.isLenderMode ? null : () => _navigateToDetails(item),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: Colors.grey.shade200, width: 1),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (item['imageUrl'] != null && item['imageUrl'].toString().isNotEmpty)
+              ClipRRect(
+                borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+                child: Image.network(
+                  item['imageUrl'],
                   height: 140,
-                  color: Colors.grey[200],
-                  child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
-                ),
-              )
-                  : Image.network(
-                item['imageUrl'],
-                height: 140,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  height: 140,
-                  color: Colors.grey[200],
-                  child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 140,
+                    color: Colors.grey[200],
+                    child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+                  ),
                 ),
               ),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item['name'] ?? 'Unnamed Machinery',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: statusBg,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  assetStatus,
-                                  style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600),
-                                ),
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item['name'] ?? 'Unnamed Machinery',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (item['type'] != null)
+                              Text(
+                                item['type'],
+                                style: TextStyle(fontSize: 12, color: Colors.green[800], fontWeight: FontWeight.bold),
                               ),
-                            ],
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            rateDisplay,
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            "${item['distance'] ?? '2.0'} km away",
-                            style: TextStyle(fontSize: 11, color: Colors.black.withOpacity(0.48)),
-                          ),
-                        ],
+                      Expanded(
+                        flex: 2,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            if (widget.isLenderMode)
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                onPressed: () => _deleteEquipment(item['id']),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                            Text(
+                              rateDisplay,
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                if (item['capacity'] != null && item['capacity'].toString().trim().isNotEmpty) ...[
-                  const SizedBox(height: 6),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  
+                  // New Age Display
+                  Row(
+                    children: [
+                      const Icon(Icons.history_toggle_off_rounded, size: 14, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      Text(
+                        "Age: ${item['age'] ?? '1 Year'}",
+                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  
+                  // New Description Display
                   Text(
-                    "Specs: ${item['capacity']}",
-                    style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w500),
+                    item['description'] ?? "Robust machinery for high-yield farming operations.",
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: Colors.black45, height: 1.3),
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  Divider(color: Colors.grey.shade100, height: 1),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            "${item['rating'] ?? '5.0'}",
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "(${item['reviews'] ?? '0'} reviews)",
+                            style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: 0.48)),
+                          ),
+                        ],
+                      ),
+                      if (!widget.isLenderMode)
+                        const Text(
+                          "Tap to Book ➔",
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green),
+                        ),
+                    ],
                   ),
                 ],
-                const SizedBox(height: 12),
-                Divider(color: Colors.grey.shade100, height: 1),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
-                        const SizedBox(width: 4),
-                        Text(
-                          "${item['rating'] ?? '5.0'}",
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          "(${item['reviews'] ?? '0'} reviews)",
-                          style: TextStyle(fontSize: 11, color: Colors.black.withOpacity(0.48)),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      "Owner: ${item['ownerName'] ?? 'Verified Partner'}",
-                      style: TextStyle(fontSize: 11, color: Colors.black.withOpacity(0.48)),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

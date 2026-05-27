@@ -17,6 +17,8 @@ class FleetBackendService {
     required double ratePerDay,
     required File? imageFile,
     required Map<String, String> preparedSpecs,
+    String? age,
+    String? description,
   }) async {
     String imageUrl = '';
 
@@ -48,7 +50,13 @@ class FleetBackendService {
       'ratePerDay': ratePerDay,
       'imageUrl': imageUrl,
       'specs': preparedSpecs,
+      'age': age ?? '1 Year',
+      'description': description ?? 'Well-maintained machinery ready for field operations.',
+      'ownerName': 'Me (Lender)', // Tagging as the current user's equipment
       'createdAt': FieldValue.serverTimestamp(),
+      'rating': 5.0,
+      'reviews': 0,
+      'distance': 0.0,
     });
 
     // Return the auto-generated Firestore ID so the UI can attach it to the local state map
@@ -58,5 +66,18 @@ class FleetBackendService {
   /// Removes an asset directly from Firestore using its Document ID
   Future<void> deleteAsset(String docId) async {
     await _db.collection('assets').doc(docId).delete();
+  }
+
+  /// Fetches a stream of all equipment assets in the fleet
+  Stream<List<Map<String, dynamic>>> getFleetStream() {
+    return _db.collection('assets').orderBy('createdAt', descending: true).snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          ...data,
+          'id': doc.id,
+        };
+      }).toList();
+    });
   }
 }

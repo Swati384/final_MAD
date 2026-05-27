@@ -54,27 +54,27 @@ class _LangScreenState extends State<LangScreen> {
               itemBuilder: (context, index) {
                 bool isSelected = selectedIndex == index;
                 return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      selectedIndex = index;
-                    });
-                    Future.delayed(const Duration(milliseconds: 300), () {
-                      Navigator.push(context, MaterialPageRoute(builder: (c) => const CentralDashboardHub()));
-                    });
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    decoration: BoxDecoration(
-                      color: isSelected ? Colors.green[700] : Colors.white,
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(
-                        color: isSelected ? Colors.green : Colors.grey.shade300,
-                        width: 2,
+                    onTap: () async {
+                      setState(() {
+                        selectedIndex = index;
+                      });
+                      final nav = Navigator.of(context);
+                      await Future.delayed(const Duration(milliseconds: 300));
+                      nav.push(MaterialPageRoute(builder: (c) => const CentralDashboardHub()));
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      decoration: BoxDecoration(
+                        color: isSelected ? Colors.green[700] : Colors.white,
+                        borderRadius: BorderRadius.circular(15),
+                        border: Border.all(
+                          color: isSelected ? Colors.green : Colors.grey.shade300,
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 5)
+                        ],
                       ),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)
-                      ],
-                    ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
