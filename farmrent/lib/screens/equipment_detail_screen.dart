@@ -17,6 +17,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   int _duration = 1;
   bool _isBooking = false;
 
+  /*
   Future<void> _makePhoneCall(String phoneNumber) async {
     final Uri launchUri = Uri(
       scheme: 'tel',
@@ -26,6 +27,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       await launchUrl(launchUri);
     }
   }
+  */
 
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
@@ -115,8 +117,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             expandedHeight: 300,
             pinned: true,
             flexibleSpace: FlexibleSpaceBar(
-              background: eq['imageUrl'] != null && eq['imageUrl'].isNotEmpty
-                  ? Image.network(eq['imageUrl'], fit: BoxFit.cover)
+              background: eq['imageUrl'] != null && eq['imageUrl'].toString().isNotEmpty
+                  ? (eq['imageUrl'].toString().startsWith('assets/')
+                      ? Image.asset(eq['imageUrl'], fit: BoxFit.cover)
+                      : Image.network(eq['imageUrl'], fit: BoxFit.cover))
                   : Container(color: Colors.grey[200], child: const Icon(Icons.agriculture, size: 80, color: Colors.grey)),
             ),
           ),
@@ -179,22 +183,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                           IconButton(onPressed: () => setState(() => _duration++), icon: const Icon(Icons.add_circle_outline)),
                         ],
                       )
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _makePhoneCall(eq['ownerPhone'] ?? "+919876543210"),
-                          icon: const Icon(Icons.phone),
-                          label: const Text("Call Owner"),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.green[700],
-                            side: BorderSide(color: Colors.green[700]!),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 32),

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+// import 'package:cloud_firestore/cloud_firestore.dart';
+// import 'package:firebase_storage/firebase_storage.dart';
+// import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
@@ -485,6 +485,22 @@ class _HomeHubTabState extends State<HomeHubTab> {
       final description = (item['description'] ?? '').toString().toLowerCase();
       final owner = (item['ownerName'] ?? '').toString().toLowerCase();
 
+      // Check for price queries (e.g., "under 2000")
+      if (searchLower.startsWith('under ')) {
+        final priceQuery = double.tryParse(searchLower.replaceFirst('under ', '').trim());
+        if (priceQuery != null) {
+          final rawRate = item['ratePerDay'] ?? item['rate'] ?? 1200.0;
+          double parsedRate;
+          if (rawRate is num) {
+            parsedRate = rawRate.toDouble();
+          } else {
+            final cleaned = rawRate.toString().replaceAll(RegExp(r'[^0-9.]'), '');
+            parsedRate = double.tryParse(cleaned) ?? 1200.0;
+          }
+          return parsedRate <= priceQuery;
+        }
+      }
+
       // "Google-like" fuzzy search: check if query is a substring of any field
       // or if any word in the query matches any field
       final searchWords = searchLower.split(' ');
@@ -498,8 +514,14 @@ class _HomeHubTabState extends State<HomeHubTab> {
       return matchesAnyWord;
     }).where((item) {
       // Secondary logic filters (Price/Distance)
-      final rawRateString = (item['ratePerDay'] ?? item['rate'] ?? '1200').toString().replaceAll(RegExp(r'[^0-9]'), '');
-      final parsedRate = double.tryParse(rawRateString) ?? 1200.0;
+      final rawRate = item['ratePerDay'] ?? item['rate'] ?? 1200.0;
+      double parsedRate;
+      if (rawRate is num) {
+        parsedRate = rawRate.toDouble();
+      } else {
+        final cleaned = rawRate.toString().replaceAll(RegExp(r'[^0-9.]'), '');
+        parsedRate = double.tryParse(cleaned) ?? 1200.0;
+      }
       final distanceValue = double.tryParse((item['distance'] ?? '2.0').toString()) ?? 2.0;
 
       return (parsedRate <= _maxPriceFilter) && (distanceValue <= _maxDistanceFilter);
@@ -512,429 +534,14 @@ class _HomeHubTabState extends State<HomeHubTab> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        File? selectedImageFile;
-        String equipmentNameInput = "";
-        String equipmentAgeInput = "1 Year";
-        String equipmentDescriptionInput = "";
-        String selectedCategory = 'Tillage';
-        String selectedEquipmentType = 'Rotavator';
-        String rentalRate = "1200";
-
-        // Local state hooks for tracking dynamic specs within the sheet
-        String specPowerHP = "";
-        String specDriveType = "4WD";
-        String specLiftCapacity = "";
-        String specWorkingWidth = "";
-        String specBladeCount = "";
-        String specTankVolume = "";
-        String specGenericSpecs = "";
-
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setModalState) {
-            List<String> equipmentOptions = _categoryToEquipmentMap[selectedCategory] ?? [];
-
-            return Container(
-              margin: const EdgeInsets.only(top: 60),
-              decoration: const BoxDecoration(
-                color: Color(0xFFEDEEE9),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-              ),
-              padding: EdgeInsets.only(
-                top: 24,
-                left: 24,
-                right: 24,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.playlist_add_rounded, color: Color(0xFF2E7D32), size: 24),
-                        const SizedBox(width: 10),
-                        const Text(
-                          "Register Fleet Asset",
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Asset Image Capture Field Box with Camera/Photos Option Dialog Selector
-                    GestureDetector(
-                      onTap: () async {
-                        final picker = ImagePicker();
-
-                        // Display an AlertDialog to ask the user for their media source
-                        final ImageSource? selectedSource = await showDialog<ImageSource>(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            title: const Text("Select Machine Photo", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                            content: const Text("Would you like to snap a new photo or browse your device gallery?"),
-                            actions: [
-                              TextButton.icon(
-                                icon: const Icon(Icons.photo_library, color: Color(0xFF2E7D32)),
-                                label: const Text("Photos", style: TextStyle(color: Colors.black87)),
-                                onPressed: () => Navigator.pop(context, ImageSource.gallery),
-                              ),
-                              TextButton.icon(
-                                icon: const Icon(Icons.camera_alt, color: Color(0xFF2E7D32)),
-                                label: const Text("Camera", style: TextStyle(color: Colors.black87)),
-                                onPressed: () => Navigator.pop(context, ImageSource.camera),
-                              ),
-                            ],
-                          ),
-                        );
-
-                        // If the user picked an option, trigger the image picker
-                        if (selectedSource != null) {
-                          final picked = await picker.pickImage(source: selectedSource);
-                          if (picked != null) {
-                            setModalState(() => selectedImageFile = File(picked.path));
-                          }
-                        }
-                      },
-                      child: Container(
-                        height: 130,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF5F5F5),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.black12),
-                          image: selectedImageFile != null
-                              ? DecorationImage(image: FileImage(selectedImageFile!), fit: BoxFit.cover)
-                              : null,
-                        ),
-                        child: selectedImageFile == null
-                            ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            Icon(Icons.add_a_photo_outlined, color: Color(0xFF2E7D32), size: 32),
-                            SizedBox(height: 8),
-                            Text("Add Machine Photo", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black54)),
-                          ],
-                        )
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Primary Category Dropdown Selection
-                    DropdownButtonFormField<String>(
-                      value: selectedCategory,
-                      decoration: const InputDecoration(
-                        labelText: "Select Classification Category",
-                        prefixIcon: Icon(Icons.category_outlined, size: 20),
-                        border: UnderlineInputBorder(),
-                      ),
-                      items: _categoryToEquipmentMap.keys
-                          .map((category) => DropdownMenuItem(value: category, child: Text(category)))
-                          .toList(),
-                      onChanged: (val) {
-                        if (val != null) {
-                          setModalState(() {
-                            selectedCategory = val;
-                            selectedEquipmentType = _categoryToEquipmentMap[val]!.first;
-                          });
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Dependent Equipment Sub-Type Dropdown Selection
-                    DropdownButtonFormField<String>(
-                      value: selectedEquipmentType,
-                      decoration: const InputDecoration(
-                        labelText: "What Equipment is This?",
-                        prefixIcon: Icon(Icons.build_circle_outlined, size: 20),
-                        border: UnderlineInputBorder(),
-                      ),
-                      items: equipmentOptions
-                          .map((type) => DropdownMenuItem(value: type, child: Text(type)))
-                          .toList(),
-                      onChanged: (val) {
-                        if (val != null) {
-                          setModalState(() => selectedEquipmentType = val);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Unified Model and Equipment Title Text Field
-                    TextField(
-                      onChanged: (val) => equipmentNameInput = val,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.precision_manufacturing_outlined, size: 20),
-                        hintText: "Enter Equipment Name / Model (e.g., Mahindra Yuvo 575)",
-                        hintStyle: TextStyle(color: Colors.black38),
-                        border: UnderlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Equipment Age Text Field
-                    TextField(
-                      onChanged: (val) => equipmentAgeInput = val,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.history_toggle_off_rounded, size: 20),
-                        hintText: "Vehicle Age (e.g., 2 Years)",
-                        hintStyle: TextStyle(color: Colors.black38),
-                        border: UnderlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Equipment Description Text Field
-                    TextField(
-                      onChanged: (val) => equipmentDescriptionInput = val,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.description_outlined, size: 20),
-                        hintText: "Brief Description of Machinery State",
-                        hintStyle: TextStyle(color: Colors.black38),
-                        border: UnderlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    const Text(
-                      "Equipment Specifications",
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black54),
-                    ),
-                    const Divider(color: Colors.black12),
-                    const SizedBox(height: 8),
-
-                    // Custom Contextual Form Engine Pipeline
-                        () {
-                      switch (selectedEquipmentType) {
-                        case 'Heavy Duty Tractor':
-                        case 'Mahindra Tractor':
-                        case 'Power Tiller':
-                          return Column(
-                            children: [
-                              TextField(
-                                onChanged: (val) => specPowerHP = val,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  prefixIcon: Icon(Icons.flash_on_rounded, size: 20),
-                                  hintText: "Engine Power (e.g., 55 HP)",
-                                  border: UnderlineInputBorder(),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              DropdownButtonFormField<String>(
-                                value: specDriveType,
-                                decoration: const InputDecoration(
-                                  labelText: "Drive Configuration",
-                                  prefixIcon: Icon(Icons.grid_4x4_rounded, size: 20),
-                                  border: UnderlineInputBorder(),
-                                ),
-                                items: ['2WD', '4WD'].map((val) => DropdownMenuItem(value: val, child: Text(val))).toList(),
-                                onChanged: (val) { if (val != null) setModalState(() => specDriveType = val); },
-                              ),
-                              const SizedBox(height: 12),
-                              TextField(
-                                onChanged: (val) => specLiftCapacity = val,
-                                decoration: const InputDecoration(
-                                  prefixIcon: Icon(Icons.g_mobiledata_rounded, size: 20),
-                                  hintText: "Max Hitch Lift Capacity (e.g., 1800 kg)",
-                                  border: UnderlineInputBorder(),
-                                ),
-                              ),
-                            ],
-                          );
-
-                        case 'Rotavator':
-                        case 'Compatible Rotavator':
-                        case 'Cultivator':
-                        case 'Disc Plough':
-                          return Column(
-                            children: [
-                              TextField(
-                                onChanged: (val) => specWorkingWidth = val,
-                                decoration: const InputDecoration(
-                                  prefixIcon: Icon(Icons.straighten_rounded, size: 20),
-                                  hintText: "Working Width (e.g., 7 Feet / 42 Tynes)",
-                                  border: UnderlineInputBorder(),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              TextField(
-                                onChanged: (val) => specBladeCount = val,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  prefixIcon: Icon(Icons.settings_suggest_outlined, size: 20),
-                                  hintText: "Number of Blades (e.g., 36 or 42 Blades)",
-                                  border: UnderlineInputBorder(),
-                                ),
-                              ),
-                            ],
-                          );
-
-                        case 'Boom Sprayer':
-                        case 'Power Sprayer':
-                        case 'Power Knapsack Sprayer':
-                        case 'Water Pump':
-                          return Column(
-                            children: [
-                              TextField(
-                                onChanged: (val) => specTankVolume = val,
-                                decoration: const InputDecoration(
-                                  prefixIcon: Icon(Icons.opacity_rounded, size: 20),
-                                  hintText: "Tank Fluid Capacity (e.g., 500 Liters)",
-                                  border: UnderlineInputBorder(),
-                                ),
-                              ),
-                            ],
-                          );
-
-                        case 'Combine Harvester':
-                        case 'High-Capacity Harvester':
-                        case 'Straw Reaper':
-                        case 'Thresher':
-                          return Column(
-                            children: [
-                              TextField(
-                                onChanged: (val) => specWorkingWidth = val,
-                                decoration: const InputDecoration(
-                                  prefixIcon: Icon(Icons.content_cut_rounded, size: 20),
-                                  hintText: "Cutter Bar Width (e.g., 14 Feet)",
-                                  border: UnderlineInputBorder(),
-                                ),
-                              ),
-                            ],
-                          );
-
-                        default:
-                          return TextField(
-                            onChanged: (val) => specGenericSpecs = val,
-                            decoration: const InputDecoration(
-                              prefixIcon: Icon(Icons.construction_rounded, size: 20),
-                              hintText: "Operational Specifications (e.g., Universal Size)",
-                              border: UnderlineInputBorder(),
-                            ),
-                          );
-                      }
-                    }(),
-                    const SizedBox(height: 16),
-
-                    // Dynamic Pricing Multiplier Selector
-                    DropdownButtonFormField<String>(
-                      value: rentalRate,
-                      decoration: const InputDecoration(
-                        labelText: "Set Base Daily Rental Fee",
-                        prefixIcon: Icon(Icons.currency_rupee_rounded, size: 20),
-                        border: UnderlineInputBorder(),
-                      ),
-                      items: ['800', '1000', '1200', '1400', '1600', '2000', '2500']
-                          .map((val) => DropdownMenuItem(value: val, child: Text("₹$val per day")))
-                          .toList(),
-                      onChanged: (val) {
-                        if (val != null) setModalState(() => rentalRate = val);
-                      },
-                    ),
-                    const SizedBox(height: 32),
-
-                    // Form Action Controls
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text("Cancel", style: TextStyle(color: Colors.black54, fontSize: 15, fontWeight: FontWeight.w600)),
-                        ),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF008736),
-                            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: () async {
-                            // Validate that a name has been input before running pipelines
-                            if (equipmentNameInput.trim().isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text("Please enter a valid equipment name.")),
-                              );
-                              return;
-                            }
-
-                            // Capture context for safe usage across async gaps
-                            final scaffoldMessenger = ScaffoldMessenger.of(context);
-                            final navigator = Navigator.of(context);
-
-                            // Pack contextual fields securely to dictionary map array schemas
-                            Map<String, String> specsPayload = {
-                              if (selectedEquipmentType.contains('Tractor') || selectedEquipmentType.contains('Tiller')) ...{
-                                "power": specPowerHP, "drive": specDriveType, "lift": specLiftCapacity
-                              } else if (selectedEquipmentType.contains('Rotavator') || selectedEquipmentType.contains('Cultivator') || selectedEquipmentType.contains('Plough')) ...{
-                                "width": specWorkingWidth, "blades": specBladeCount
-                              } else if (selectedEquipmentType.contains('Sprayer') || selectedEquipmentType.contains('Pump')) ...{
-                                "tank": specTankVolume
-                              } else if (selectedEquipmentType.contains('Harvester') || selectedEquipmentType.contains('Reaper') || selectedEquipmentType.contains('Thresher')) ...{
-                                "cutter": specWorkingWidth
-                              } else ...{
-                                "generic": specGenericSpecs
-                              }
-                            };
-
-                            try {
-                              final double parsedRate = double.tryParse(rentalRate) ?? 1200.0;
-
-                              // Fire data payload stream directly to Firebase storage pipelines
-                              await FleetBackendService().deployNewAsset(
-                                equipmentName: equipmentNameInput,
-                                category: selectedCategory,
-                                type: selectedEquipmentType,
-                                ratePerDay: parsedRate,
-                                imageFile: selectedImageFile,
-                                preparedSpecs: specsPayload,
-                                age: equipmentAgeInput,
-                                description: equipmentDescriptionInput,
-                              );
-
-                              // Build local representation map matching user grid schema targets
-                              Map<String, dynamic> newAssetData = {
-                                "name": equipmentNameInput,
-                                "category": selectedCategory,
-                                "type": selectedEquipmentType,
-                                "rate": "₹${parsedRate.toInt()}/day",
-                                "distance": "0.0",
-                                "ownerName": "Me (Lender)",
-                                "specs": specsPayload,
-                                "imagePath": selectedImageFile?.path ?? "",
-                                "age": equipmentAgeInput,
-                                "description": equipmentDescriptionInput,
-                              };
-
-                              // Pass up to parent component stream state loops to update UI instantly
-                              widget.onEquipmentAdded(newAssetData);
-
-                              navigator.pop();
-                              scaffoldMessenger.showSnackBar(
-                                const SnackBar(content: Text("Asset deployed successfully!"), backgroundColor: Colors.green),
-                              );
-                            } catch (e) {
-                              scaffoldMessenger.showSnackBar(
-                                SnackBar(backgroundColor: Colors.red.shade800, content: Text("Database Pipeline Failure: $e")),
-                              );
-                            }
-                          },
-                          child: const Text("Deploy Asset", style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+        return _AddEquipmentSheet(
+          onEquipmentAdded: widget.onEquipmentAdded,
+          categoryToEquipmentMap: _categoryToEquipmentMap,
         );
       },
     );
   }
+
   // 📞 Function to trigger an immediate phone dialer launch
   Future<void> _makePhoneCallToOwner(String phoneNumber) async {
     final Uri launchUri = Uri(
@@ -1030,8 +637,8 @@ class _HomeHubTabState extends State<HomeHubTab> {
   @override
   Widget build(BuildContext context) {
     double totalLenderEarnings = widget.bookings
-        .where((b) => b['role'] == 'lending' && b['status'] != 'PENDING' && b['status'] != 'DENIED')
-        .fold(0.0, (sum, item) => sum + (item['cost'] ?? 0.0));
+        .where((b) => (b['role'] == 'lending' || b['lenderName'] == 'Me (Lender)' || b['lenderName'] == 'Self') && b['status'] == 'COMPLETED')
+        .fold(0.0, (acc, item) => acc + (double.tryParse(item['cost'].toString()) ?? 0.0));
 
     final filteredFleetList = _getFilteredFleet();
 
@@ -1221,9 +828,13 @@ class _HomeHubTabState extends State<HomeHubTab> {
           ),
         ),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
+          child: RefreshIndicator(
+            onRefresh: () async {
+              setState(() {});
+            },
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
               Row(
                 children: [
                   Expanded(
@@ -1360,6 +971,7 @@ class _HomeHubTabState extends State<HomeHubTab> {
               ],
             ],
           ),
+        ),
         ),
       ],
     );
@@ -1639,7 +1251,18 @@ class _HomeHubTabState extends State<HomeHubTab> {
   }
 
   Widget _buildGarageItemCard(Map<String, dynamic> item) {
-    String rateDisplay = item['ratePerDay'] != null ? "₹${item['ratePerDay']}/day" : "₹1,200/day";
+    String rateDisplay;
+    final rawRate = item['ratePerDay'] ?? item['rate'];
+    if (rawRate != null) {
+      if (rawRate is num) {
+        rateDisplay = "₹${rawRate.toInt()}/day";
+      } else {
+        rateDisplay = rawRate.toString();
+      }
+    } else {
+      rateDisplay = "₹1,200/day";
+    }
+    String imageUrl = (item['imageUrl'] ?? item['imagePath'] ?? '').toString();
 
     return GestureDetector(
       onTap: widget.isLenderMode ? null : () => _navigateToDetails(item),
@@ -1653,20 +1276,44 @@ class _HomeHubTabState extends State<HomeHubTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (item['imageUrl'] != null && item['imageUrl'].toString().isNotEmpty)
+            if (imageUrl.isNotEmpty)
               ClipRRect(
                 borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
-                child: Image.network(
-                  item['imageUrl'],
-                  height: 140,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    height: 140,
-                    color: Colors.grey[200],
-                    child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
-                  ),
-                ),
+                child: imageUrl.startsWith('assets/')
+                  ? Image.asset(
+                      imageUrl,
+                      height: 140,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        height: 140,
+                        color: Colors.grey[200],
+                        child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+                      ),
+                    )
+                  : imageUrl.startsWith('http')
+                  ? Image.network(
+                      imageUrl,
+                      height: 140,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        height: 140,
+                        color: Colors.grey[200],
+                        child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+                      ),
+                    )
+                  : Image.file(
+                      File(imageUrl),
+                      height: 140,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        height: 140,
+                        color: Colors.grey[200],
+                        child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+                      ),
+                    ),
               ),
             Padding(
               padding: const EdgeInsets.all(14),
@@ -1775,5 +1422,464 @@ class _HomeHubTabState extends State<HomeHubTab> {
         ),
       ),
     );
+  }
+}
+
+class _AddEquipmentSheet extends StatefulWidget {
+  final ValueChanged<Map<String, dynamic>> onEquipmentAdded;
+  final Map<String, List<String>> categoryToEquipmentMap;
+
+  const _AddEquipmentSheet({
+    required this.onEquipmentAdded,
+    required this.categoryToEquipmentMap,
+  });
+
+  @override
+  State<_AddEquipmentSheet> createState() => _AddEquipmentSheetState();
+}
+
+class _AddEquipmentSheetState extends State<_AddEquipmentSheet> {
+  File? selectedImageFile;
+  String equipmentNameInput = "";
+  String equipmentAgeInput = "1 Year";
+  String equipmentDescriptionInput = "";
+  String selectedCategory = 'Tillage';
+  late String selectedEquipmentType;
+  String rentalRate = "1200";
+
+  // Local state for tracking dynamic specs within the sheet
+  String specPowerHP = "";
+  String specDriveType = "4WD";
+  String specLiftCapacity = "";
+  String specWorkingWidth = "";
+  String specBladeCount = "";
+  String specTankVolume = "";
+  String specGenericSpecs = "";
+
+  bool isDeploying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedEquipmentType = widget.categoryToEquipmentMap[selectedCategory]!.first;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    List<String> equipmentOptions = widget.categoryToEquipmentMap[selectedCategory] ?? [];
+
+    return Container(
+      margin: const EdgeInsets.only(top: 60),
+      decoration: const BoxDecoration(
+        color: Color(0xFFEDEEE9),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: EdgeInsets.only(
+        top: 24,
+        left: 24,
+        right: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.playlist_add_rounded, color: Color(0xFF2E7D32), size: 24),
+                const SizedBox(width: 10),
+                const Text(
+                  "Register Fleet Asset",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // Asset Image Capture Field Box with Camera/Photos Option Dialog Selector
+            GestureDetector(
+              onTap: () async {
+                final picker = ImagePicker();
+
+                // Display an AlertDialog to ask the user for their media source
+                final ImageSource? selectedSource = await showDialog<ImageSource>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    title: const Text("Select Machine Photo", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    content: const Text("Would you like to snap a new photo or browse your device gallery?"),
+                    actions: [
+                      TextButton.icon(
+                        icon: const Icon(Icons.photo_library, color: Color(0xFF2E7D32)),
+                        label: const Text("Photos", style: TextStyle(color: Colors.black87)),
+                        onPressed: () => Navigator.pop(context, ImageSource.gallery),
+                      ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.camera_alt, color: Color(0xFF2E7D32)),
+                        label: const Text("Camera", style: TextStyle(color: Colors.black87)),
+                        onPressed: () => Navigator.pop(context, ImageSource.camera),
+                      ),
+                    ],
+                  ),
+                );
+
+                // If the user picked an option, trigger the image picker
+                if (selectedSource != null) {
+                  final picked = await picker.pickImage(
+                    source: selectedSource,
+                    maxWidth: 1024,
+                    imageQuality: 85,
+                  );
+                  if (picked != null) {
+                    setState(() => selectedImageFile = File(picked.path));
+                  }
+                }
+              },
+              child: Container(
+                height: 130,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5F5F5),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.black12),
+                  image: selectedImageFile != null
+                      ? DecorationImage(image: FileImage(selectedImageFile!), fit: BoxFit.cover)
+                      : null,
+                ),
+                child: selectedImageFile == null
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          Icon(Icons.add_a_photo_outlined, color: Color(0xFF2E7D32), size: 32),
+                          SizedBox(height: 8),
+                          Text("Add Machine Photo", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black54)),
+                        ],
+                      )
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Primary Category Dropdown Selection
+            DropdownButtonFormField<String>(
+              value: selectedCategory,
+              decoration: const InputDecoration(
+                labelText: "Select Classification Category",
+                prefixIcon: Icon(Icons.category_outlined, size: 20),
+                border: UnderlineInputBorder(),
+              ),
+              items: widget.categoryToEquipmentMap.keys
+                  .map((category) => DropdownMenuItem(value: category, child: Text(category)))
+                  .toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    selectedCategory = val;
+                    selectedEquipmentType = widget.categoryToEquipmentMap[val]!.first;
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Dependent Equipment Sub-Type Dropdown Selection
+            DropdownButtonFormField<String>(
+              value: selectedEquipmentType,
+              decoration: const InputDecoration(
+                labelText: "What Equipment is This?",
+                prefixIcon: Icon(Icons.build_circle_outlined, size: 20),
+                border: UnderlineInputBorder(),
+              ),
+              items: equipmentOptions
+                  .map((type) => DropdownMenuItem(value: type, child: Text(type)))
+                  .toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() => selectedEquipmentType = val);
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Unified Model and Equipment Title Text Field
+            TextField(
+              onChanged: (val) => setState(() => equipmentNameInput = val),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.precision_manufacturing_outlined, size: 20),
+                hintText: "Enter Equipment Name / Model (e.g., Mahindra Yuvo 575)",
+                hintStyle: TextStyle(color: Colors.black38),
+                border: UnderlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Equipment Age Text Field
+            TextField(
+              onChanged: (val) => setState(() => equipmentAgeInput = val),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.history_toggle_off_rounded, size: 20),
+                hintText: "Vehicle Age (e.g., 2 Years)",
+                hintStyle: TextStyle(color: Colors.black38),
+                border: UnderlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Equipment Description Text Field
+            TextField(
+              onChanged: (val) => setState(() => equipmentDescriptionInput = val),
+              maxLines: 2,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.description_outlined, size: 20),
+                hintText: "Brief Description of Machinery State",
+                hintStyle: TextStyle(color: Colors.black38),
+                border: UnderlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            const Text(
+              "Equipment Specifications",
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black54),
+            ),
+            const Divider(color: Colors.black12),
+            const SizedBox(height: 8),
+
+            // Custom Contextual Form Engine Pipeline
+            () {
+              switch (selectedEquipmentType) {
+                case 'Heavy Duty Tractor':
+                case 'Mahindra Tractor':
+                case 'Power Tiller':
+                  return Column(
+                    children: [
+                      TextField(
+                        onChanged: (val) => setState(() => specPowerHP = val),
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.flash_on_rounded, size: 20),
+                          hintText: "Engine Power (e.g., 55 HP)",
+                          border: UnderlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: specDriveType,
+                        decoration: const InputDecoration(
+                          labelText: "Drive Configuration",
+                          prefixIcon: Icon(Icons.grid_4x4_rounded, size: 20),
+                          border: UnderlineInputBorder(),
+                        ),
+                        items: ['2WD', '4WD'].map((val) => DropdownMenuItem(value: val, child: Text(val))).toList(),
+                        onChanged: (val) {
+                          if (val != null) setState(() => specDriveType = val);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        onChanged: (val) => setState(() => specLiftCapacity = val),
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.g_mobiledata_rounded, size: 20),
+                          hintText: "Max Hitch Lift Capacity (e.g., 1800 kg)",
+                          border: UnderlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  );
+
+                case 'Rotavator':
+                case 'Compatible Rotavator':
+                case 'Cultivator':
+                case 'Disc Plough':
+                  return Column(
+                    children: [
+                      TextField(
+                        onChanged: (val) => setState(() => specWorkingWidth = val),
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.straighten_rounded, size: 20),
+                          hintText: "Working Width (e.g., 7 Feet / 42 Tynes)",
+                          border: UnderlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        onChanged: (val) => setState(() => specBladeCount = val),
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.settings_suggest_outlined, size: 20),
+                          hintText: "Number of Blades (e.g., 36 or 42 Blades)",
+                          border: UnderlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  );
+
+                case 'Boom Sprayer':
+                case 'Power Sprayer':
+                case 'Power Knapsack Sprayer':
+                case 'Water Pump':
+                  return Column(
+                    children: [
+                      TextField(
+                        onChanged: (val) => setState(() => specTankVolume = val),
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.opacity_rounded, size: 20),
+                          hintText: "Tank Fluid Capacity (e.g., 500 Liters)",
+                          border: UnderlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  );
+
+                case 'Combine Harvester':
+                case 'High-Capacity Harvester':
+                case 'Straw Reaper':
+                case 'Thresher':
+                  return Column(
+                    children: [
+                      TextField(
+                        onChanged: (val) => setState(() => specWorkingWidth = val),
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.content_cut_rounded, size: 20),
+                          hintText: "Cutter Bar Width (e.g., 14 Feet)",
+                          border: UnderlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  );
+
+                default:
+                  return TextField(
+                    onChanged: (val) => setState(() => specGenericSpecs = val),
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.construction_rounded, size: 20),
+                      hintText: "Operational Specifications (e.g., Universal Size)",
+                      border: UnderlineInputBorder(),
+                    ),
+                  );
+              }
+            }(),
+            const SizedBox(height: 16),
+
+            // Dynamic Pricing Multiplier Selector
+            DropdownButtonFormField<String>(
+              value: rentalRate,
+              decoration: const InputDecoration(
+                labelText: "Set Base Daily Rental Fee",
+                prefixIcon: Icon(Icons.currency_rupee_rounded, size: 20),
+                border: UnderlineInputBorder(),
+              ),
+              items: ['800', '1000', '1200', '1400', '1600', '2000', '2500']
+                  .map((val) => DropdownMenuItem(value: val, child: Text("₹$val per day")))
+                  .toList(),
+              onChanged: (val) {
+                if (val != null) setState(() => rentalRate = val);
+              },
+            ),
+            const SizedBox(height: 32),
+
+            // Form Action Controls
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Cancel", style: TextStyle(color: Colors.black54, fontSize: 15, fontWeight: FontWeight.w600)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF008736),
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: isDeploying ? null : _handleDeploy,
+                  child: isDeploying 
+                      ? const SizedBox(
+                          width: 20, 
+                          height: 20, 
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                        )
+                      : const Text("Deploy Asset", style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleDeploy() async {
+    print("🚀 Deployment initiated for: $equipmentNameInput");
+    if (equipmentNameInput.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter a valid equipment name.")),
+      );
+      return;
+    }
+
+    setState(() => isDeploying = true);
+
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    Map<String, String> specsPayload = {
+      if (selectedEquipmentType.contains('Tractor') || selectedEquipmentType.contains('Tiller')) ...{
+        "power": specPowerHP, "drive": specDriveType, "lift": specLiftCapacity
+      } else if (selectedEquipmentType.contains('Rotavator') || selectedEquipmentType.contains('Cultivator') || selectedEquipmentType.contains('Plough')) ...{
+        "width": specWorkingWidth, "blades": specBladeCount
+      } else if (selectedEquipmentType.contains('Sprayer') || selectedEquipmentType.contains('Pump')) ...{
+        "tank": specTankVolume
+      } else if (selectedEquipmentType.contains('Harvester') || selectedEquipmentType.contains('Reaper') || selectedEquipmentType.contains('Thresher')) ...{
+        "cutter": specWorkingWidth
+      } else ...{
+        "generic": specGenericSpecs
+      }
+    };
+
+    try {
+      final double parsedRate = double.tryParse(rentalRate) ?? 1200.0;
+
+      final String docId = await FleetBackendService().deployNewAsset(
+        equipmentName: equipmentNameInput,
+        category: selectedCategory,
+        type: selectedEquipmentType,
+        ratePerDay: parsedRate,
+        imageFile: selectedImageFile,
+        preparedSpecs: specsPayload,
+        age: equipmentAgeInput,
+        description: equipmentDescriptionInput,
+      );
+
+      widget.onEquipmentAdded({
+        "id": docId,
+        "name": equipmentNameInput,
+        "category": selectedCategory,
+        "type": selectedEquipmentType,
+        "ratePerDay": parsedRate,
+        "distance": 0.0,
+        "ownerName": "Me (Lender)",
+        "specs": specsPayload,
+        "imageUrl": "", 
+        "imagePath": selectedImageFile?.path ?? "",
+        "age": equipmentAgeInput,
+        "description": equipmentDescriptionInput,
+      });
+
+      if (mounted) {
+        navigator.pop();
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(content: Text("Asset deployed successfully!"), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => isDeploying = false);
+        scaffoldMessenger.showSnackBar(
+          SnackBar(backgroundColor: Colors.red.shade800, content: Text("Database Pipeline Failure: $e")),
+        );
+      }
+    }
   }
 }

@@ -435,10 +435,20 @@ class _BookingsTabState extends State<BookingsTab> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    final myRentals = widget.bookings.where((b) => b['role'] == 'renting').toList();
+    // Renter Mode: Show bookings where I am the Renter OR the role is explicitly renting (for demo data)
+    final myRentals = widget.bookings.where((b) {
+      final isMeRenter = b['renterName'] == 'Self';
+      final isDemoRenting = b['role'] == 'renting';
+      return isMeRenter || isDemoRenting;
+    }).toList();
     
-    // Demonstration cards for Lender Mode if real data is empty
-    final realLendings = widget.bookings.where((b) => b['role'] == 'lending' || b['lenderName'] == 'Self').toList();
+    // Lender Mode: Show bookings where I am the Lender OR the role is explicitly lending (for demo data)
+    final realLendings = widget.bookings.where((b) {
+      final isMeLender = b['lenderName'] == 'Me (Lender)' || b['lenderName'] == 'Self';
+      final isDemoLending = b['role'] == 'lending';
+      return isMeLender || isDemoLending;
+    }).toList();
+
     final List<Map<String, dynamic>> myLendings = isLenderView && realLendings.isEmpty 
       ? [
           {

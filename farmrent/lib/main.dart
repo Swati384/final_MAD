@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'screens/login.dart';
 import 'screens/auth_service.dart';
 import 'screens/central_dashboard_hub.dart';
+import 'init_firestore_data.dart';
 
 FirebaseOptions? get safeFirebaseOptions {
   try {
@@ -32,6 +33,7 @@ void main() async {
       await Firebase.initializeApp();
     }
     debugPrint("🚀 Firebase system workspace initialized successfully.");
+    await FirestoreInitializer.addSampleEquipment();
   } catch (e) {
     debugPrint("⚠️ Note: Firebase running in local fallback mode: $e");
   }
